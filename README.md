@@ -44,3 +44,6 @@ anduril -src /mnt/phone -dst ~/Pictures/library \
   [--max-workers 4] [--skip-raw] [--timezone-adjust +2h]
 ```
 
+### Future goals
+
+- [ ] concurrency
