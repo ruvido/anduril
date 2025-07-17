@@ -2,7 +2,6 @@ package internal
 
 import (
 	"crypto/sha256"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -123,21 +122,41 @@ func getVideoCreateDateMP4(path string) (*time.Time, error) {
 
 	var creationTime uint64
 	_, err = mp4.ReadBoxStructure(f, func(h *mp4.ReadHandle) (interface{}, error) {
-		if h.BoxInfo.Type == mp4.BoxTypeMvhd() {
-			// Read the entire mvhd box
-			box, _, err := h.ReadPayload()
-			if err != nil {
-				return nil, err
-			}
-
-			mvhd, ok := box.(*mp4.Mvhd)
-			if !ok {
-				return nil, errors.New("failed to parse mvhd box")
-			}
-
-			creationTime = uint64(mvhd.CreationTime)
-			return nil, io.EOF // Stop parsing
+	if h.BoxInfo.Type == mp4.BoxTypeMvhd() {
+		box, _, err := h.ReadPayload()
+		if err != nil {
+			return nil, err
 		}
+
+		mvhd, ok := box.(*mp4.Mvhd)
+		if !ok {
+			return nil, errors.New("failed to parse mvhd box")
+		}
+
+		// Handle different MVHD versions
+		if mvhd.GetVersion() == 0 {
+			creationTime = uint64(mvhd.CreationTimeV0)
+		} else {
+			creationTime = mvhd.CreationTimeV1
+		}
+		return nil, io.EOF
+	}
+	
+		// if h.BoxInfo.Type == mp4.BoxTypeMvhd() {
+		// 	// Read the entire mvhd box
+		// 	box, _, err := h.ReadPayload()
+		// 	if err != nil {
+		// 		return nil, err
+		// 	}
+		//
+		// 	mvhd, ok := box.(*mp4.Mvhd)
+		// 	if !ok {
+		// 		return nil, errors.New("failed to parse mvhd box")
+		// 	}
+		//
+		// 	creationTime = uint64(mvhd.CreationTime)
+		// 	return nil, io.EOF // Stop parsing
+		// }
 		return nil, nil
 	})
 
@@ -155,14 +174,6 @@ func getVideoCreateDateMP4(path string) (*time.Time, error) {
 	return &t, nil
 }
 
-// getFileModTime gets the file modification time
-func getFileModTime(path string) (time.Time, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return time.Time{}, err
-	}
-	return info.ModTime(), nil
-}
 
 // ProcessFile processes media files and organizes them in the library
 func ProcessFile(src string, cfg *Config, user string, dryRun bool) error {
