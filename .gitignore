@@ -1,6 +1,15 @@
 # ruvido
 _*
 prompt.md
+anduril
+anduril.log
+dcim/
+go.mod
+go.sum
+library-video/
+library/
+random/
+signal/
 # If you prefer the allow list template instead of the deny list, see community template:
 # https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
 #

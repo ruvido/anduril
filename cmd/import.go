@@ -71,7 +71,8 @@ var importCmd = &cobra.Command{
 
         // Process each file
         for _, f := range files {
-            if err := internal.ProcessFile(f, conf, user, library, dryRunFlag); err != nil {
+            // if err := internal.ProcessFile(f, conf, user, library, dryRunFlag); err != nil {
+            if err := internal.ProcessFile(f, conf, user, dryRunFlag); err != nil {
                 fmt.Printf("Error processing %s: %v\n", f, err)
             }
         }
