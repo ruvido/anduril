@@ -13,6 +13,7 @@ var (
     libraryFlag string
 	videolibraryFlag string
     dryRunFlag  bool
+	useExifTool bool
 )
 
 var importCmd = &cobra.Command{
@@ -85,6 +86,7 @@ func init() {
     importCmd.Flags().StringVar(&userFlag, "user", "", "User folder under library")
     importCmd.Flags().StringVar(&libraryFlag, "library", "", "Root library folder")
     importCmd.Flags().BoolVar(&dryRunFlag, "dry-run", false, "Show files without copying")
+    importCmd.Flags().BoolVar(&useExifTool, "exiftool", false, "Force to use exiftool binary")
 
     rootCmd.AddCommand(importCmd)
 }

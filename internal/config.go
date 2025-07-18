@@ -14,6 +14,7 @@ type Config struct {
     VideoLib	string   `mapstructure:"videolibrary"`
     ImageExt	[]string `mapstructure:"image_extensions"`
     VideoExt	[]string `mapstructure:"video_extensions"`
+    UseExifTool bool
 }
 
 func LoadConfig() (*Config, error) {

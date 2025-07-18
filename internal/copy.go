@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	exif "github.com/rwcarlsen/goexif/exif"
 	exiftool "github.com/barasher/go-exiftool"
 )
 
@@ -17,6 +18,16 @@ import (
 var (
 	ErrNoExifDate = errors.New("no EXIF or media creation date found")
 )
+
+// Image extensions supported by goexif
+var nativeImageExts = map[string]bool{
+	".jpg":  true,
+	".jpeg": true,
+	".tiff": true,
+	".tif":  true,
+	".cr2":  true,
+	".nef":  true,
+}
 
 // fileHash computes SHA256 hash of a file content
 func fileHash(path string) (string, error) {
@@ -88,8 +99,48 @@ func checkImageQualityEqual(path1, path2 string) (bool, error) {
 	return false, nil
 }
 
-// GetCaptureTimestamp returns the media creation timestamp from a file
-func GetCaptureTimestamp(filePath string) (time.Time, error) {
+// getCaptureTimestampNative uses goexif to get date for supported image files
+func getCaptureTimestampNative(filePath string) (time.Time, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer f.Close()
+
+	x, err := exif.Decode(f)
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	// Try multiple EXIF date fields
+	for _, field := range []exif.FieldName{
+		exif.DateTimeOriginal,
+		exif.DateTimeDigitized,
+		exif.DateTime,
+	} {
+		tag, err := x.Get(field)
+		if err != nil {
+			continue
+		}
+
+		timeStr, err := tag.StringVal()
+		if err != nil {
+			continue
+		}
+
+		// Clean and parse the timestamp
+		timeStr = strings.Trim(timeStr, "\"")
+		t, err := time.Parse("2006:01:02 15:04:05", timeStr)
+		if err == nil {
+			return t, nil
+		}
+	}
+
+	return time.Time{}, ErrNoExifDate
+}
+
+// getCaptureTimestampExifTool uses exiftool to get date for any media file
+func getCaptureTimestampExifTool(filePath string) (time.Time, error) {
 	// Initialize exiftool
 	et, err := exiftool.NewExiftool()
 	if err != nil {
@@ -131,6 +182,7 @@ func GetCaptureTimestamp(filePath string) (time.Time, error) {
 				"2006:01:02 15:04:05.999",      // With milliseconds
 				"2006-01-02 15:04:05",          // Hyphen format
 				"2006-01-02 15:04:05-07:00",    // Hyphen with timezone
+				"2006:01:02",                   // Date only
 			}
 			
 			for _, format := range formats {
@@ -143,6 +195,25 @@ func GetCaptureTimestamp(filePath string) (time.Time, error) {
 	}
 
 	return time.Time{}, ErrNoExifDate
+}
+
+// GetCaptureTimestamp returns the media creation timestamp from a file
+func GetCaptureTimestamp(filePath string, useExifTool bool) (time.Time, error) {
+	ext := strings.ToLower(filepath.Ext(filePath))
+	
+	// For videos or when exiftool is requested, use exiftool directly
+	if useExifTool || !nativeImageExts[ext] {
+		return getCaptureTimestampExifTool(filePath)
+	}
+	
+	// First try native for supported images
+	t, err := getCaptureTimestampNative(filePath)
+	if err == nil {
+		return t, nil
+	}
+	
+	// Fallback to exiftool if native fails
+	return getCaptureTimestampExifTool(filePath)
 }
 
 // ProcessFile processes media files and organizes them in the library
@@ -173,7 +244,7 @@ func ProcessFile(src string, cfg *Config, user string, dryRun bool) error {
 	
 	// Try to get metadata for ALL media files
 	if isMedia {
-		captureTime, err := GetCaptureTimestamp(src)
+		captureTime, err := GetCaptureTimestamp(src, cfg.UseExifTool)
 		if err == nil {
 			fileDate = captureTime
 			gotExif = true
