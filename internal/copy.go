@@ -10,13 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rwcarlsen/goexif/exif"
-	"github.com/abema/go-mp4"
+	exiftool "github.com/barasher/go-exiftool"
 )
 
 // Global errors
 var (
-	ErrNoExifDate = errors.New("no EXIF or MP4 date tags found")
+	ErrNoExifDate = errors.New("no EXIF or media creation date found")
 )
 
 // fileHash computes SHA256 hash of a file content
@@ -65,9 +64,22 @@ func copyFileAtomic(src, dest string) error {
 		os.Remove(tmp)
 		return err
 	}
-	out.Close()
+	
+	if err := out.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
 
 	return os.Rename(tmp, dest)
+}
+
+// getFileModTime returns a file's modification time
+func getFileModTime(path string) (time.Time, error) {
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return fileInfo.ModTime(), nil
 }
 
 // placeholder for future image quality check
@@ -76,104 +88,62 @@ func checkImageQualityEqual(path1, path2 string) (bool, error) {
 	return false, nil
 }
 
-// getExifDateOriginal returns the first valid EXIF timestamp found
-func getExifDateOriginal(path string) (*time.Time, error) {
-	f, err := os.Open(path)
+// GetCaptureTimestamp returns the media creation timestamp from a file
+func GetCaptureTimestamp(filePath string) (time.Time, error) {
+	// Initialize exiftool
+	et, err := exiftool.NewExiftool()
 	if err != nil {
-		return nil, err
+		return time.Time{}, fmt.Errorf("exiftool not installed: %w", err)
 	}
-	defer f.Close()
+	defer et.Close()
 
-	x, err := exif.Decode(f)
-	if err != nil {
-		return nil, err
+	// Extract file metadata
+	fileInfos := et.ExtractMetadata(filePath)
+	if len(fileInfos) != 1 {
+		return time.Time{}, fmt.Errorf("unexpected file info count: %d", len(fileInfos))
 	}
 
-	tags := []exif.FieldName{
-		exif.DateTimeOriginal,
-		exif.DateTimeDigitized,
+	fi := fileInfos[0]
+	if fi.Err != nil {
+		return time.Time{}, fmt.Errorf("exif extraction error: %w", fi.Err)
+	}
+
+	// Tags to check in priority order
+	tags := []string{
+		"DateTimeOriginal",
 		"CreateDate",
-		"MediaCreateDate",
+		"CreationDate",
 		"TrackCreateDate",
+		"MediaCreateDate",
 	}
 
+	// Find first valid timestamp
 	for _, tag := range tags {
-		t, err := x.Get(tag)
-		if err != nil {
-			continue
+		val, err := fi.GetString(tag)
+		if err == nil && val != "" {
+			// Clean and parse the timestamp
+			cleanVal := strings.Trim(val, "\"")
+			
+			// Try various date formats
+			formats := []string{
+				"2006:01:02 15:04:05",         // Most common format
+				"2006:01:02 15:04:05-07:00",    // With timezone
+				"2006:01:02 15:04:05.999",      // With milliseconds
+				"2006-01-02 15:04:05",          // Hyphen format
+				"2006-01-02 15:04:05-07:00",    // Hyphen with timezone
+			}
+			
+			for _, format := range formats {
+				t, err := time.Parse(format, cleanVal)
+				if err == nil {
+					return t, nil
+				}
+			}
 		}
-		timeStr := strings.Trim(t.String(), `"`)
-		dt, err := time.Parse("2006:01:02 15:04:05", timeStr)
-		if err != nil {
-			continue
-		}
-		return &dt, nil
 	}
-	return nil, ErrNoExifDate
+
+	return time.Time{}, ErrNoExifDate
 }
-
-// getVideoCreateDateMP4 extracts creation time from MP4 metadata (mvhd)
-func getVideoCreateDateMP4(path string) (*time.Time, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	var creationTime uint64
-	_, err = mp4.ReadBoxStructure(f, func(h *mp4.ReadHandle) (interface{}, error) {
-	if h.BoxInfo.Type == mp4.BoxTypeMvhd() {
-		box, _, err := h.ReadPayload()
-		if err != nil {
-			return nil, err
-		}
-
-		mvhd, ok := box.(*mp4.Mvhd)
-		if !ok {
-			return nil, errors.New("failed to parse mvhd box")
-		}
-
-		// Handle different MVHD versions
-		if mvhd.GetVersion() == 0 {
-			creationTime = uint64(mvhd.CreationTimeV0)
-		} else {
-			creationTime = mvhd.CreationTimeV1
-		}
-		return nil, io.EOF
-	}
-	
-		// if h.BoxInfo.Type == mp4.BoxTypeMvhd() {
-		// 	// Read the entire mvhd box
-		// 	box, _, err := h.ReadPayload()
-		// 	if err != nil {
-		// 		return nil, err
-		// 	}
-		//
-		// 	mvhd, ok := box.(*mp4.Mvhd)
-		// 	if !ok {
-		// 		return nil, errors.New("failed to parse mvhd box")
-		// 	}
-		//
-		// 	creationTime = uint64(mvhd.CreationTime)
-		// 	return nil, io.EOF // Stop parsing
-		// }
-		return nil, nil
-	})
-
-	if err != nil && err != io.EOF {
-		return nil, err
-	}
-
-	if creationTime == 0 {
-		return nil, ErrNoExifDate
-	}
-
-	// MP4 timestamps are based on 1904-01-01
-	baseTime := time.Date(1904, 1, 1, 0, 0, 0, 0, time.UTC)
-	t := baseTime.Add(time.Duration(creationTime) * time.Second)
-	return &t, nil
-}
-
 
 // ProcessFile processes media files and organizes them in the library
 func ProcessFile(src string, cfg *Config, user string, dryRun bool) error {
@@ -203,18 +173,13 @@ func ProcessFile(src string, cfg *Config, user string, dryRun bool) error {
 	
 	// Try to get metadata for ALL media files
 	if isMedia {
-		if isImage {
-			exifDate, err := getExifDateOriginal(src)
-			if err == nil && exifDate != nil {
-				fileDate = *exifDate
-				gotExif = true
-			}
-		} else if isVideo {
-			vidDate, err := getVideoCreateDateMP4(src)
-			if err == nil && vidDate != nil {
-				fileDate = *vidDate
-				gotExif = true
-			}
+		captureTime, err := GetCaptureTimestamp(src)
+		if err == nil {
+			fileDate = captureTime
+			gotExif = true
+		} else if !errors.Is(err, ErrNoExifDate) {
+			// Only log real errors (not missing metadata)
+			fmt.Printf("Warning: metadata extraction failed for %s: %v\n", src, err)
 		}
 	}
 	
