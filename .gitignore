@@ -4,10 +4,9 @@ prompt.md
 anduril
 anduril.log
 dcim/
-go.mod
-go.sum
 library-video/
 library/
+100lib/
 random/
 signal/
 # If you prefer the allow list template instead of the deny list, see community template:

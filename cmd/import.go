@@ -67,7 +67,6 @@ var importCmd = &cobra.Command{
         fmt.Printf("Found %d media files\n", len(files))
         if dryRunFlag {
             fmt.Println("Dry run mode: no files will be copied")
-            return nil
         }
 
         // Process each file
