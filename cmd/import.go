@@ -34,6 +34,11 @@ var importCmd = &cobra.Command{
             return err
         }
 
+        // Override config with command line flags
+        if useExifTool {
+            conf.UseExifTool = true
+        }
+
         // Determine user and library
         user := userFlag
         library := libraryFlag
@@ -57,6 +62,7 @@ var importCmd = &cobra.Command{
             return err
         }
         defer logger.Close()
+        defer internal.CloseExifTool() // Ensure ExifTool cleanup
 
         // Scan media files using config
         files, err := internal.ScanMediaFiles(folder, conf)

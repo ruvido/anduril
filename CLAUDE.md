@@ -177,3 +177,4 @@ Home users, photographers, and power users who need to:
 - Maintain a clean, date-based file structure
 - Handle duplicates with quality preservation
 - Avoid data loss during organization
+- less is more

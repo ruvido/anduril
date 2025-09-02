@@ -55,22 +55,21 @@ var nativeImageExts = map[string]bool{
 	".nef":  true,
 }
 
-// Common filename patterns for date extraction
+// Common filename patterns ordered by frequency (most common first)
 var filenamePatterns = []*regexp.Regexp{
-	// App-specific patterns (case-insensitive)
-	regexp.MustCompile(`(?i)signal[_-](\d{4})(\d{2})(\d{2})[_-](\d{2})(\d{2})(\d{2})`), // signal_20240315_143022
-	regexp.MustCompile(`(?i)(IMG|VID)[_-](\d{4})(\d{2})(\d{2})[_-]WA\d+`), // IMG-20240315-WA0001, VID-20240315-WA0001
-	regexp.MustCompile(`(?i)telegram[_-](\d{4})[_-](\d{2})[_-](\d{2})[_-](\d{2})[_-](\d{2})[_-](\d{2})`), // telegram_2024-03-15_14-30-22
-	regexp.MustCompile(`(?i)telegram[_-](\d{4})[_-](\d{2})[_-](\d{2})`), // telegram_2024-03-15
-	regexp.MustCompile(`(?i)inshot[_-](\d{4})(\d{2})(\d{2})[_-](\d{2})(\d{2})(\d{2})`), // InShot_20240315_143022
-	regexp.MustCompile(`(?i)instagram[_-](\d{4})(\d{2})(\d{2})[_-](\d{2})(\d{2})(\d{2})`), // instagram_20240315_143022
-	
-	// Generic patterns - order matters, most specific first
+	// Most common generic patterns first
+	regexp.MustCompile(`(\d{4})(\d{2})(\d{2})[_-](\d{2})(\d{2})(\d{2})`), // 20240315_143022
 	regexp.MustCompile(`IMG[_-](\d{4})(\d{2})(\d{2})[_-](\d{2})(\d{2})(\d{2})`), // IMG_20240315_143022
 	regexp.MustCompile(`(\d{4})[_-](\d{2})[_-](\d{2})[_-](\d{2})[_-](\d{2})[_-](\d{2})`), // 2024-03-15-14-30-22
-	regexp.MustCompile(`(\d{4})(\d{2})(\d{2})[_-](\d{2})(\d{2})(\d{2})`), // 20240315_143022
-	regexp.MustCompile(`(\d{4})[_-](\d{2})[_-](\d{2})`), // 2024-03-15 (matches telegram_2024-03-15)
+	regexp.MustCompile(`(\d{4})[_-](\d{2})[_-](\d{2})`), // 2024-03-15
 	regexp.MustCompile(`(\d{8})`), // 20240315
+	
+	// App-specific patterns (case-insensitive)
+	regexp.MustCompile(`(?i)(IMG|VID)[_-](\d{4})(\d{2})(\d{2})[_-]WA\d+`), // WhatsApp: IMG-20240315-WA0001
+	regexp.MustCompile(`(?i)signal[_-](\d{4})(\d{2})(\d{2})[_-](\d{2})(\d{2})(\d{2})`), // Signal
+	regexp.MustCompile(`(?i)inshot[_-](\d{4})(\d{2})(\d{2})[_-](\d{2})(\d{2})(\d{2})`), // InShot
+	regexp.MustCompile(`(?i)telegram[_-](\d{4})[_-](\d{2})[_-](\d{2})[_-](\d{2})[_-](\d{2})[_-](\d{2})`), // Telegram datetime
+	regexp.MustCompile(`(?i)telegram[_-](\d{4})[_-](\d{2})[_-](\d{2})`), // Telegram date only
 }
 
 // fileHash computes SHA256 hash of a file content
@@ -203,24 +202,10 @@ func parseDateFromFilename(filename string) (time.Time, error) {
 
 // getBestFileDate tries multiple methods to get the most accurate file date
 func getBestFileDate(filePath string, cfg *Config) (time.Time, DateConfidence, error) {
-	ext := strings.ToLower(filepath.Ext(filePath))
+	fileType := determineFileType(filePath, cfg)
 	
 	// Method 1: Try EXIF/metadata (HIGH confidence)
-	isMedia := false
-	for _, e := range cfg.ImageExt {
-		if ext == e {
-			isMedia = true
-			break
-		}
-	}
-	for _, e := range cfg.VideoExt {
-		if ext == e {
-			isMedia = true
-			break
-		}
-	}
-	
-	if isMedia {
+	if fileType == TypeImage || fileType == TypeVideo {
 		captureTime, err := GetCaptureTimestamp(filePath, cfg.UseExifTool)
 		if err == nil {
 			return captureTime, HIGH, nil
@@ -232,18 +217,12 @@ func getBestFileDate(filePath string, cfg *Config) (time.Time, DateConfidence, e
 		return fileDate, MEDIUM, nil
 	}
 	
-	// Method 3: File creation time if available (LOW confidence)
-	if info, err := os.Stat(filePath); err == nil {
-		// On some systems, creation time might be available
-		return info.ModTime(), LOW, nil
-	}
-	
-	// Method 4: Modification time (VERY_LOW confidence)
+	// Method 3: File modification time (LOW confidence)
 	if modTime, err := getFileModTime(filePath); err == nil {
-		return modTime, VERY_LOW, nil
+		return modTime, LOW, nil
 	}
 	
-	return time.Time{}, VERY_LOW, fmt.Errorf("could not determine file date")
+	return time.Time{}, VERY_LOW, fmt.Errorf("could not determine file date for %s", filePath)
 }
 
 // getImageResolution returns the width and height of an image file
@@ -316,6 +295,29 @@ func compareImageQuality(newPath, existingPath string) QualityResult {
 	return EQUAL
 }
 
+// Global ExifTool instance for reuse
+var globalExifTool *exiftool.Exiftool
+
+// getOrCreateExifTool returns a reusable ExifTool instance
+func getOrCreateExifTool() (*exiftool.Exiftool, error) {
+	if globalExifTool == nil {
+		et, err := exiftool.NewExiftool()
+		if err != nil {
+			return nil, fmt.Errorf("exiftool not available: %w", err)
+		}
+		globalExifTool = et
+	}
+	return globalExifTool, nil
+}
+
+// CloseExifTool closes the global ExifTool instance
+func CloseExifTool() {
+	if globalExifTool != nil {
+		globalExifTool.Close()
+		globalExifTool = nil
+	}
+}
+
 // getVideoMetadata extracts basic video metadata using exiftool
 func getVideoMetadata(path string) (width, height int, duration float64, err error) {
 	// Quick check if file is actually a video by extension
@@ -328,11 +330,10 @@ func getVideoMetadata(path string) (width, height int, duration float64, err err
 		return 0, 0, 0, fmt.Errorf("not a video file: %s", path)
 	}
 
-	et, err := exiftool.NewExiftool()
+	et, err := getOrCreateExifTool()
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("exiftool not available: %w", err)
+		return 0, 0, 0, err
 	}
-	defer et.Close()
 
 	fileInfos := et.ExtractMetadata(path)
 	if len(fileInfos) != 1 {
@@ -423,17 +424,143 @@ func compareVideoQuality(newPath, existingPath string) QualityResult {
 	return EQUAL
 }
 
+// FileType represents the type of file being processed
+type FileType int
+
+const (
+	TypeImage FileType = iota
+	TypeVideo
+	TypeOther
+)
+
+// determineFileType checks what type of file we're dealing with
+func determineFileType(filePath string, cfg *Config) FileType {
+	ext := strings.ToLower(filepath.Ext(filePath))
+	
+	for _, e := range cfg.ImageExt {
+		if ext == e {
+			return TypeImage
+		}
+	}
+	
+	for _, e := range cfg.VideoExt {
+		if ext == e {
+			return TypeVideo
+		}
+	}
+	
+	return TypeOther
+}
+
+// generateDestinationPath creates the target path based on file type and date confidence
+func generateDestinationPath(src string, fileDate time.Time, confidence DateConfidence, fileType FileType, cfg *Config, user string) (string, error) {
+	destBase := filepath.Base(src)
+	highConfidenceDate := confidence >= MEDIUM
+	
+	var destDir string
+	switch {
+	case fileType == TypeVideo && highConfidenceDate:
+		destDir = filepath.Join(cfg.VideoLib, user,
+			fmt.Sprintf("%04d", fileDate.Year()),
+			fmt.Sprintf("%02d", fileDate.Month()),
+			fmt.Sprintf("%02d", fileDate.Day()))
+	
+	case fileType == TypeVideo && !highConfidenceDate:
+		destDir = filepath.Join(cfg.VideoLib, user, "noexif",
+			fmt.Sprintf("%04d-%02d", fileDate.Year(), fileDate.Month()))
+	
+	case fileType == TypeImage && highConfidenceDate:
+		destDir = filepath.Join(cfg.Library, user,
+			fmt.Sprintf("%04d", fileDate.Year()),
+			fmt.Sprintf("%02d", fileDate.Month()),
+			fmt.Sprintf("%02d", fileDate.Day()))
+	
+	case fileType == TypeImage && !highConfidenceDate:
+		destDir = filepath.Join(cfg.Library, user, "noexif",
+			fmt.Sprintf("%04d-%02d", fileDate.Year(), fileDate.Month()))
+	
+	default:
+		return "", fmt.Errorf("non-media file passed to generateDestinationPath: %s", src)
+	}
+	
+	return filepath.Join(destDir, destBase), nil
+}
+
+// handleDuplicateFile manages duplicate file resolution with quality comparison
+func handleDuplicateFile(src, destPath string, fileType FileType) (finalPath string, shouldSkip bool, err error) {
+	// Check if files are identical
+	srcHash, err := fileHash(src)
+	if err != nil {
+		return "", false, fmt.Errorf("failed to hash src file %s: %w", src, err)
+	}
+	
+	destHash, err := fileHash(destPath)
+	if err != nil {
+		return "", false, fmt.Errorf("failed to hash dest file %s: %w", destPath, err)
+	}
+	
+	// If content is identical, skip
+	if srcHash == destHash {
+		fmt.Printf("Skipping duplicate file (identical content): %s\n", src)
+		return "", true, nil
+	}
+	
+	// Different content, apply quality logic
+	switch fileType {
+	case TypeImage:
+		switch compareImageQuality(src, destPath) {
+		case HIGHER:
+			fmt.Printf("Replacing with higher quality image: %s → %s\n", src, destPath)
+			return destPath, false, nil
+		case EQUAL:
+			fmt.Printf("Skipping file (existing has equal quality): %s\n", src)
+			return "", true, nil
+		case LOWER:
+			finalPath = safeCopyPath(destPath)
+			fmt.Printf("Copying with new name (lower quality): %s → %s\n", src, finalPath)
+			return finalPath, false, nil
+		case UNKNOWN:
+			finalPath = safeCopyPath(destPath)
+			fmt.Printf("Copying with new name (quality unknown): %s → %s\n", src, finalPath)
+			return finalPath, false, nil
+		}
+	
+	case TypeVideo:
+		switch compareVideoQuality(src, destPath) {
+		case HIGHER:
+			fmt.Printf("Replacing with higher quality video: %s → %s\n", src, destPath)
+			return destPath, false, nil
+		case EQUAL:
+			fmt.Printf("Skipping video (existing has equal quality): %s\n", src)
+			return "", true, nil
+		case LOWER:
+			finalPath = safeCopyPath(destPath)
+			fmt.Printf("Copying with new name (lower quality video): %s → %s\n", src, finalPath)
+			return finalPath, false, nil
+		case UNKNOWN:
+			finalPath = safeCopyPath(destPath)
+			fmt.Printf("Copying with new name (different videos or quality unknown): %s → %s\n", src, finalPath)
+			return finalPath, false, nil
+		}
+	
+	default:
+		return "", false, fmt.Errorf("unexpected file type in duplicate check: %s", src)
+	}
+	
+	return destPath, false, nil
+}
+
 // getCaptureTimestampNative uses goexif to get date for supported image files
 func getCaptureTimestampNative(filePath string) (time.Time, error) {
 	f, err := os.Open(filePath)
 	if err != nil {
-		return time.Time{}, err
+		return time.Time{}, fmt.Errorf("opening file %s: %w", filePath, err)
 	}
 	defer f.Close()
 
 	x, err := exif.Decode(f)
 	if err != nil {
-		return time.Time{}, err
+		return time.Time{}, fmt.Errorf("decoding EXIF from %s: %w", filePath, err)
 	}
 
 	// Try multiple EXIF date fields
@@ -465,12 +592,10 @@ func getCaptureTimestampNative(filePath string) (time.Time, error) {
 
 // getCaptureTimestampExifTool uses exiftool to get date for any media file
 func getCaptureTimestampExifTool(filePath string) (time.Time, error) {
-	// Initialize exiftool
-	et, err := exiftool.NewExiftool()
+	et, err := getOrCreateExifTool()
 	if err != nil {
-		return time.Time{}, fmt.Errorf("exiftool not installed: %w", err)
+		return time.Time{}, err
 	}
-	defer et.Close()
 
 	// Extract file metadata
 	fileInfos := et.ExtractMetadata(filePath)
@@ -540,25 +665,12 @@ func GetCaptureTimestamp(filePath string, useExifTool bool) (time.Time, error) {
 	return getCaptureTimestampExifTool(filePath)
 }
 
-// ProcessFile processes media files and organizes them in the library
+// ProcessFile processes media files and organizes them in the library  
 func ProcessFile(src string, cfg *Config, user string, dryRun bool) error {
-	ext := strings.ToLower(filepath.Ext(src))
-	
 	// Determine file type
-	isImage := false
-	for _, e := range cfg.ImageExt {
-		if ext == e {
-			isImage = true
-			break
-		}
-	}
-	
-	isVideo := false
-	for _, e := range cfg.VideoExt {
-		if ext == e {
-			isVideo = true
-			break
-		}
+	fileType := determineFileType(src, cfg)
+	if fileType == TypeOther {
+		return nil // Skip non-media files
 	}
 	
 	// Get best available date with confidence level
@@ -572,116 +684,38 @@ func ProcessFile(src string, cfg *Config, user string, dryRun bool) error {
 		fmt.Printf("Warning: low confidence date for %s (using %s)\n", src, fileDate.Format("2006-01-02"))
 	}
 	
-	// Determine destination with improved /noexif/ logic
-	destBase := filepath.Base(src)
-	var destDir string
-	highConfidenceDate := confidence >= MEDIUM // EXIF or filename parsing
-	
-	switch {
-	case isVideo && highConfidenceDate:
-		// Videos with reliable metadata: /library_video/user/YYYY/MM/DD/
-		destDir = filepath.Join(cfg.VideoLib, user,
-			fmt.Sprintf("%04d", fileDate.Year()),
-			fmt.Sprintf("%02d", fileDate.Month()),
-			fmt.Sprintf("%02d", fileDate.Day()))
-	
-	case isVideo && !highConfidenceDate:
-		// Videos without reliable metadata: /library_video/user/noexif/YYYY-MM/
-		destDir = filepath.Join(cfg.VideoLib, user, "noexif",
-			fmt.Sprintf("%04d-%02d", fileDate.Year(), fileDate.Month()))
-	
-	case isImage && highConfidenceDate:
-		// Images with reliable metadata: /library/user/YYYY/MM/DD/
-		destDir = filepath.Join(cfg.Library, user,
-			fmt.Sprintf("%04d", fileDate.Year()),
-			fmt.Sprintf("%02d", fileDate.Month()),
-			fmt.Sprintf("%02d", fileDate.Day()))
-	
-	case isImage && !highConfidenceDate:
-		// Images without reliable metadata: /library/user/noexif/YYYY-MM/
-		destDir = filepath.Join(cfg.Library, user, "noexif",
-			fmt.Sprintf("%04d-%02d", fileDate.Year(), fileDate.Month()))
-	
-	default:
-		// Should not reach here since ScanMediaFiles only returns media files
-		return fmt.Errorf("non-media file passed to ProcessFile: %s", src)
+	// Generate destination path
+	destPath, err := generateDestinationPath(src, fileDate, confidence, fileType, cfg, user)
+	if err != nil {
+		return err
 	}
 	
 	if dryRun {
-		fmt.Printf("[dry-run] %s → %s (confidence: %v)\n", src, filepath.Join(destDir, destBase), confidence)
+		fmt.Printf("[dry-run] %s → %s (confidence: %v)\n", src, destPath, confidence)
 		return nil
 	}
 	
+	// Create destination directory
+	destDir := filepath.Dir(destPath)
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", destDir, err)
 	}
 	
-	destPath := filepath.Join(destDir, destBase)
-	
+	// Handle duplicates if file exists
 	if _, err := os.Stat(destPath); err == nil {
-		// File with same name exists, check if it's identical
-		srcHash, err := fileHash(src)
+		finalPath, shouldSkip, err := handleDuplicateFile(src, destPath, fileType)
 		if err != nil {
-			return fmt.Errorf("failed to hash src file %s: %w", src, err)
+			return err
 		}
-		destHash, err := fileHash(destPath)
-		if err != nil {
-			return fmt.Errorf("failed to hash dest file %s: %w", destPath, err)
-		}
-		
-		// If content is identical, skip
-		if srcHash == destHash {
-			fmt.Printf("Skipping duplicate file (identical content): %s\n", src)
+		if shouldSkip {
 			return nil
 		}
-		
-		// Different content, same filename - apply quality logic
-		if isImage {
-			switch compareImageQuality(src, destPath) {
-			case HIGHER:
-				// New file is higher quality, replace existing
-				fmt.Printf("Replacing with higher quality image: %s → %s\n", src, destPath)
-				// Keep existing destPath to overwrite
-			case EQUAL:
-				// Equal quality, keep existing file
-				fmt.Printf("Skipping file (existing has equal quality): %s\n", src)
-				return nil
-			case LOWER:
-				// New file is lower quality, copy with suffix to preserve both
-				destPath = safeCopyPath(destPath)
-				fmt.Printf("Copying with new name (lower quality): %s → %s\n", src, destPath)
-			case UNKNOWN:
-				// Cannot determine quality, copy with suffix to be safe
-				destPath = safeCopyPath(destPath)
-				fmt.Printf("Copying with new name (quality unknown): %s → %s\n", src, destPath)
-			}
-		} else if isVideo {
-			switch compareVideoQuality(src, destPath) {
-			case HIGHER:
-				// New video is higher quality, replace existing
-				fmt.Printf("Replacing with higher quality video: %s → %s\n", src, destPath)
-				// Keep existing destPath to overwrite
-			case EQUAL:
-				// Equal quality, keep existing file
-				fmt.Printf("Skipping video (existing has equal quality): %s\n", src)
-				return nil
-			case LOWER:
-				// New video is lower quality, copy with suffix to preserve both
-				destPath = safeCopyPath(destPath)
-				fmt.Printf("Copying with new name (lower quality video): %s → %s\n", src, destPath)
-			case UNKNOWN:
-				// Cannot determine quality or different videos, copy with suffix
-				destPath = safeCopyPath(destPath)
-				fmt.Printf("Copying with new name (different videos or quality unknown): %s → %s\n", src, destPath)
-			}
-		} else {
-			// Should not reach here since we only process media files
-			return fmt.Errorf("unexpected non-media file in duplicate check: %s", src)
-		}
+		destPath = finalPath
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("failed to stat %s: %w", destPath, err)
 	}
 	
+	// Perform atomic copy
 	if err := copyFileAtomic(src, destPath); err != nil {
 		return fmt.Errorf("failed to copy file %s to %s: %w", src, destPath, err)
 	}
