@@ -424,6 +424,59 @@ func compareVideoQuality(newPath, existingPath string) QualityResult {
 	return EQUAL
 }
 
+// Public helper functions for server mode
+
+// DetermineFileType is a public wrapper for determineFileType
+func DetermineFileType(filePath string, cfg *Config) FileType {
+    return determineFileType(filePath, cfg)
+}
+
+// GetBestFileDate is a public wrapper for getBestFileDate
+func GetBestFileDate(filePath string, cfg *Config) (time.Time, DateConfidence, error) {
+    return getBestFileDate(filePath, cfg)
+}
+
+// FileHash is a public wrapper for fileHash
+func FileHash(path string) (string, error) {
+    return fileHash(path)
+}
+
+// GetFileSize is a public wrapper for getFileSize
+func GetFileSize(path string) (int64, error) {
+    return getFileSize(path)
+}
+
+// GetImageResolution is a public wrapper for getImageResolution
+func GetImageResolution(path string) (int, int, error) {
+    return getImageResolution(path)
+}
+
+// GetVideoMetadata is a public wrapper for getVideoMetadata
+func GetVideoMetadata(path string) (int, int, float64, error) {
+    return getVideoMetadata(path)
+}
+
+// ExtractUserFromPath extracts username from organized file path
+func ExtractUserFromPath(filePath string, cfg *Config) string {
+    // Try to find user directory in the path
+    rel, err := filepath.Rel(cfg.Library, filePath)
+    if err != nil {
+        // Try video library
+        rel, err = filepath.Rel(cfg.VideoLib, filePath)
+        if err != nil {
+            return "unknown"
+        }
+    }
+    
+    // Extract first directory component as user
+    parts := strings.Split(rel, string(filepath.Separator))
+    if len(parts) > 0 && parts[0] != "" && parts[0] != "." {
+        return parts[0]
+    }
+    
+    return "unknown"
+}
+
 // FileType represents the type of file being processed
 type FileType int
 
@@ -644,6 +697,63 @@ func getCaptureTimestampExifTool(filePath string) (time.Time, error) {
 	}
 
 	return time.Time{}, ErrNoExifDate
+}
+
+// BatchExtractMetadata extracts metadata for multiple files in one ExifTool call
+func BatchExtractMetadata(filePaths []string) (map[string]time.Time, error) {
+	if len(filePaths) == 0 {
+		return make(map[string]time.Time), nil
+	}
+	
+	et, err := getOrCreateExifTool()
+	if err != nil {
+		return nil, err
+	}
+
+	// Extract metadata for all files at once
+	fileInfos := et.ExtractMetadata(filePaths...)
+	results := make(map[string]time.Time)
+
+	tags := []string{
+		"DateTimeOriginal",
+		"CreateDate", 
+		"CreationDate",
+		"TrackCreateDate",
+		"MediaCreateDate",
+	}
+
+	formats := []string{
+		"2006:01:02 15:04:05",
+		"2006:01:02 15:04:05-07:00",
+		"2006:01:02 15:04:05.999",
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04:05-07:00",
+		"2006:01:02",
+	}
+
+	for _, fi := range fileInfos {
+		if fi.Err != nil {
+			continue // Skip files with extraction errors
+		}
+		
+		// Find first valid timestamp
+		for _, tag := range tags {
+			val, err := fi.GetString(tag)
+			if err == nil && val != "" {
+				cleanVal := strings.Trim(val, "\"")
+				
+				for _, format := range formats {
+					if t, err := time.Parse(format, cleanVal); err == nil {
+						results[fi.File] = t
+						goto nextFile
+					}
+				}
+			}
+		}
+		nextFile:
+	}
+
+	return results, nil
 }
 
 // GetCaptureTimestamp returns the media creation timestamp from a file

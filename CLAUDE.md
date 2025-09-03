@@ -1,18 +1,22 @@
-# Anduril - Media File Organizer
+# Anduril - Smart Media File Organizer
 
 ## Project Overview
 
-Anduril is a Go CLI tool for organizing large sets of media files (images/videos) by their capture date. Currently implements the **import command** with smart duplicate handling and quality-based file replacement.
+Anduril is a Go CLI tool for organizing large media collections by capture date with intelligent duplicate handling and quality-based file replacement. Features multi-level date detection, messaging app filename support, and atomic file operations.
 
 ## Current Status
 
 ✅ **Implemented:**
-- Import command with EXIF/metadata extraction
-- Smart duplicate detection (hash-based)
-- Image quality comparison (resolution + file size)
-- Safe file organization with atomic operations
-- Comprehensive test coverage for quality checks
-- Structured configuration management
+- Import command with advanced EXIF/metadata extraction
+- Multi-level date detection (EXIF → filename patterns → file timestamps)
+- Messaging app filename pattern recognition (Signal, WhatsApp, Telegram, Instagram)
+- Smart duplicate detection with SHA256 hash verification
+- Quality-based image/video comparison without artificial thresholds
+- Date confidence scoring system (HIGH/MEDIUM/LOW/VERY_LOW)
+- Atomic file operations with integrity verification
+- Global ExifTool instance for performance optimization
+- Comprehensive test coverage for quality and pattern matching
+- Structured configuration management with TOML
 
 🚧 **Planned:** Server mode with PocketBase integration (see prompt-server.md)
 
@@ -41,38 +45,63 @@ anduril import [--user USER] [--library LIBRARY] [--dry-run] [--exiftool] INPUT_
 ```
 
 **Features:**
-- Extracts date from EXIF metadata (images) or file creation time (videos/fallback)
-- Organizes files into `LIBRARY/user/YYYY/MM/DD/filename` structure  
-- Files without metadata go to `LIBRARY/user/noexif/YYYY-MM/`
-- Smart duplicate handling with quality comparison
-- Atomic file operations with integrity verification
-- Comprehensive logging
+- **Multi-level date detection**: EXIF metadata → filename patterns → file timestamps
+- **Messaging app support**: Recognizes Signal, WhatsApp, Telegram, Instagram filename patterns  
+- **Date confidence scoring**: HIGH/MEDIUM/LOW/VERY_LOW confidence levels
+- **Smart organization**: High confidence files go to `YYYY/MM/DD/`, low confidence to `noexif/YYYY-MM/`
+- **Quality-based deduplication**: Keeps highest quality version without artificial thresholds
+- **Video support**: Full video metadata extraction and quality comparison
+- **Atomic operations**: Safe copying with SHA256 verification
+- **Performance optimized**: Global ExifTool instance, native Go libraries
 
-### Duplicate Resolution Logic
+### Advanced Date Detection
+
+**Date Confidence Levels:**
+- **HIGH**: EXIF DateTimeOriginal, CreateDate metadata
+- **MEDIUM**: Filename pattern parsing (20240315_143022, IMG-20240315-WA0001)
+- **LOW**: File creation time
+- **VERY_LOW**: File modification time (fallback)
+
+**Supported Filename Patterns:**
+- Generic: `20240315_143022`, `IMG_20240315_143022`, `2024-03-15-14-30-22`
+- WhatsApp: `IMG-20240315-WA0001`, `VID-20240315-WA0002`  
+- Signal: `signal-2024-03-15-143022`
+- Telegram: `telegram-2024-03-15-14-30-22`
+- InShot: `inshot-2024-03-15-143022`
+
+### Quality Comparison System
+
+**Image Quality Logic:**
+1. **Resolution priority**: Higher pixel count (width × height) wins
+2. **Compression quality**: For same resolution, larger file size wins
+3. **No artificial thresholds**: Direct comparison for accurate results
+
+**Video Quality Logic:**
+1. **Duration validation**: >5 second difference = different videos (no comparison)
+2. **Resolution priority**: Higher pixel count wins  
+3. **Bitrate quality**: For same resolution, larger file size wins
+
+### Smart Duplicate Resolution
 
 ```
 if file_exists_at_destination:
-    if identical_content (same hash):
+    if identical_content (SHA256 hash match):
         skip_file
-    elif is_image:
-        if new_image_higher_quality:
+    elif is_media_file:
+        quality_result = compare_quality(new, existing)
+        if quality_result == HIGHER:
             replace_existing_file
-        elif same_quality:
-            skip_file  
-        else:
+        elif quality_result == EQUAL:
+            skip_file
+        elif quality_result == LOWER:
             copy_with_suffix (_2, _3, etc.)
+        else: // UNKNOWN
+            copy_with_suffix
     else:
         copy_with_suffix
 else:
     copy_file
 ```
-
-### Quality Comparison
-
-**Image Quality Check:**
-1. **Resolution priority**: Higher pixel count wins
-2. **File size comparison**: For same resolution, larger file indicates better compression quality  
-3. **Equal quality threshold**: Files within 10% size difference considered equal quality
 
 ## Dependencies
 
@@ -141,6 +170,9 @@ GOOS=windows GOARCH=amd64 go build -o anduril-windows.exe
 - Image resolution detection ✅
 - Quality comparison algorithms ✅  
 - File size analysis ✅
+- Filename pattern parsing ✅
+- Video metadata extraction ✅
+- Date confidence scoring ✅
 - Edge cases and error handling ✅
 
 ## Key Quality Features
@@ -151,15 +183,17 @@ GOOS=windows GOARCH=amd64 go build -o anduril-windows.exe
 - Safe path generation for naming conflicts
 
 **Smart Organization:**
-- EXIF-based dating for images
-- Metadata extraction for videos  
-- Fallback to file modification time
-- Separate handling for files without metadata
+- Multi-level date detection with confidence scoring
+- EXIF/metadata extraction for precise timestamps
+- Filename pattern parsing for messaging apps
+- Intelligent folder structure based on date confidence
+- Video and image support with format-specific handling
 
 **Performance:**
-- Lazy metadata extraction (only when needed)
-- Native Go libraries for common formats
-- ExifTool fallback for comprehensive format support
+- Global ExifTool instance reuse across files
+- Native Go libraries for common image formats
+- Optimized regex patterns (most common first)
+- Lazy metadata extraction (only when needed for quality comparison)
 
 ## Future Architecture (Server Mode)
 
@@ -177,4 +211,17 @@ Home users, photographers, and power users who need to:
 - Maintain a clean, date-based file structure
 - Handle duplicates with quality preservation
 - Avoid data loss during organization
-- less is more
+## Latest Architecture Improvements
+
+**Code Streamlining (Less is More):**
+- Refactored `ProcessFile` from 148 lines to 47 lines
+- Extracted helper functions: `determineFileType`, `generateDestinationPath`, `handleDuplicateFile`
+- Removed artificial quality thresholds for more accurate comparison
+- Fixed critical --exiftool flag bug in cmd/import.go:38
+- Optimized ExifTool usage with global instance reuse
+
+**Key Bug Fixes:**
+- ✅ Fixed --exiftool flag not being passed to config (cmd/import.go:38-40)
+- ✅ Removed 10% file size threshold causing incorrect quality comparisons
+- ✅ Added proper ExifTool cleanup with defer statement
+- ✅ Fixed regex pattern ordering for better filename matching performance
