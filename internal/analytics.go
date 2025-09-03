@@ -7,6 +7,7 @@ import (
     "path/filepath"
     "sort"
     "strings"
+    "sync/atomic"
     "time"
 )
 
@@ -17,6 +18,7 @@ type AnalyticsOptions struct {
     MediaOnly      bool
     FindDuplicates bool
     Format         string
+    CreateBrowse   bool
 }
 
 // AnalyticsResults contains the analysis results
@@ -32,6 +34,7 @@ type AnalyticsResults struct {
     Projects        []ProjectInfo           `json:"projects"`
     MediaInsights   *MediaInsights          `json:"media_insights,omitempty"`
     Duplicates      []DuplicateSet          `json:"duplicates,omitempty"`
+    LargestFiles    []LargeFileInfo        `json:"largest_files"`
     
     ScanDuration    time.Duration          `json:"scan_duration"`
 }
@@ -78,6 +81,21 @@ type DuplicateSet struct {
     Size  int64    `json:"size_bytes"`
 }
 
+// LargeFileInfo contains information about large files (>100MB)
+type LargeFileInfo struct {
+    Path     string `json:"path"`
+    Size     int64  `json:"size_bytes"`
+    Category string `json:"category"`
+}
+
+// ProgressInfo tracks scanning progress
+type ProgressInfo struct {
+    FilesScanned   int64
+    DirsScanned    int64
+    CurrentDir     string
+    StartTime      time.Time
+}
+
 // Default folders to skip for performance
 var defaultSkipPatterns = []string{
     "node_modules",
@@ -112,6 +130,7 @@ var fileTypeCategories = map[string][]string{
     "Spreadsheets": {".xls", ".xlsx", ".csv", ".ods"},
     "Presentations": {".ppt", ".pptx", ".odp"},
     "Text": {".txt", ".md", ".rst", ".asciidoc"},
+    "Books": {".epub", ".mobi", ".azw", ".azw3", ".cbr", ".cbz", ".fb2", ".lit"},
     "Code": {".go", ".js", ".ts", ".py", ".java", ".c", ".cpp", ".h", ".hpp", ".rs", ".php", ".rb", ".swift"},
     "Config": {".json", ".yaml", ".yml", ".toml", ".ini", ".conf", ".xml"},
     "Archives": {".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz"},
@@ -138,6 +157,7 @@ func AnalyzeFolder(folderPath string, cfg *Config, options *AnalyticsOptions) (*
         FileTypes:     make(map[string]*FileTypeInfo),
         Projects:      []ProjectInfo{},
         SkippedFolders: []string{},
+        LargestFiles:  []LargeFileInfo{},
     }
     
     // Initialize file type categories
@@ -155,17 +175,45 @@ func AnalyzeFolder(folderPath string, cfg *Config, options *AnalyticsOptions) (*
         duplicateHashes = make(map[string][]string)
     }
 
+    // Setup progress tracking
+    progress := &ProgressInfo{
+        StartTime: startTime,
+    }
+    
+    // Start progress display goroutine
+    done := make(chan bool)
+    go displayProgress(progress, done)
+
     // Scan folder
-    err := scanFolderRecursive(folderPath, "", options, results, duplicateHashes)
+    err := scanFolderRecursive(folderPath, "", options, results, duplicateHashes, progress)
     if err != nil {
+        done <- true
         return nil, err
     }
     
+    // Stop progress display
+    done <- true
+    
     results.ScanDuration = time.Since(startTime)
+    
+    // Create browse structure if requested
+    if options.CreateBrowse {
+        if err := CreateBrowseStructure(results); err != nil {
+            fmt.Printf("Warning: failed to create browse structure: %v\n", err)
+        }
+    }
 
     // Analyze duplicates if requested
     if options.FindDuplicates {
         results.Duplicates = findDuplicateSets(duplicateHashes)
+    }
+
+    // Sort and keep top 5 largest files
+    sort.Slice(results.LargestFiles, func(i, j int) bool {
+        return results.LargestFiles[i].Size > results.LargestFiles[j].Size
+    })
+    if len(results.LargestFiles) > 5 {
+        results.LargestFiles = results.LargestFiles[:5]
     }
 
     // Analyze media if not media-only or if media files found
@@ -177,7 +225,7 @@ func AnalyzeFolder(folderPath string, cfg *Config, options *AnalyticsOptions) (*
 }
 
 // scanFolderRecursive recursively scans folder with smart filtering
-func scanFolderRecursive(currentPath, relativePath string, options *AnalyticsOptions, results *AnalyticsResults, duplicateHashes map[string][]string) error {
+func scanFolderRecursive(currentPath, relativePath string, options *AnalyticsOptions, results *AnalyticsResults, duplicateHashes map[string][]string, progress *ProgressInfo) error {
     // Check max depth
     if options.MaxDepth > 0 {
         depth := strings.Count(relativePath, string(filepath.Separator))
@@ -185,6 +233,10 @@ func scanFolderRecursive(currentPath, relativePath string, options *AnalyticsOpt
             return nil
         }
     }
+
+    // Update progress with current directory
+    atomic.StoreInt64(&progress.DirsScanned, atomic.LoadInt64(&progress.DirsScanned)+1)
+    progress.CurrentDir = currentPath
 
     entries, err := os.ReadDir(currentPath)
     if err != nil {
@@ -217,11 +269,14 @@ func scanFolderRecursive(currentPath, relativePath string, options *AnalyticsOpt
 
             // Recurse into subdirectory
             newRelativePath := filepath.Join(relativePath, name)
-            if err := scanFolderRecursive(fullPath, newRelativePath, options, results, duplicateHashes); err != nil {
+            if err := scanFolderRecursive(fullPath, newRelativePath, options, results, duplicateHashes, progress); err != nil {
                 // Log error but continue scanning
                 fmt.Printf("Warning: error scanning %s: %v\n", fullPath, err)
             }
         } else {
+            // Update file progress
+            atomic.AddInt64(&progress.FilesScanned, 1)
+            
             // Process file
             if err := analyzeFile(fullPath, results, options, duplicateHashes); err != nil {
                 fmt.Printf("Warning: error analyzing %s: %v\n", fullPath, err)
@@ -250,6 +305,44 @@ func shouldSkipFolder(folderName string) bool {
     }
     
     return false
+}
+
+// displayProgress shows real-time scanning progress
+func displayProgress(progress *ProgressInfo, done <-chan bool) {
+    ticker := time.NewTicker(500 * time.Millisecond)
+    defer ticker.Stop()
+    
+    for {
+        select {
+        case <-done:
+            // Clear the progress line and return
+            fmt.Print("\r\033[K")
+            return
+        case <-ticker.C:
+            files := atomic.LoadInt64(&progress.FilesScanned)
+            dirs := atomic.LoadInt64(&progress.DirsScanned)
+            elapsed := time.Since(progress.StartTime)
+            
+            var rate string
+            if elapsed > 0 {
+                filesPerSec := float64(files) / elapsed.Seconds()
+                if filesPerSec >= 1 {
+                    rate = fmt.Sprintf("%.1f files/s", filesPerSec)
+                } else {
+                    rate = fmt.Sprintf("%.1f s/file", 1/filesPerSec)
+                }
+            }
+            
+            // Show progress (without newline, overwrite previous)
+            currentDir := progress.CurrentDir
+            if len(currentDir) > 50 {
+                currentDir = "..." + currentDir[len(currentDir)-47:]
+            }
+            
+            fmt.Printf("\r🔍 Scanning: %d files, %d dirs | %s | %s", 
+                files, dirs, rate, currentDir)
+        }
+    }
 }
 
 // analyzeFile analyzes a single file and updates results
@@ -283,6 +376,16 @@ func analyzeFile(filePath string, results *AnalyticsResults, options *AnalyticsO
     if info.Size() > typeInfo.LargestSize {
         typeInfo.LargestSize = info.Size()
         typeInfo.LargestFile = filePath
+    }
+
+    // Track large files (>100MB)
+    const largeSizeThreshold = 100 * 1024 * 1024 // 100MB in bytes
+    if info.Size() > largeSizeThreshold {
+        results.LargestFiles = append(results.LargestFiles, LargeFileInfo{
+            Path:     filePath,
+            Size:     info.Size(),
+            Category: category,
+        })
     }
 
     // Hash for duplicate detection
@@ -433,35 +536,41 @@ func displayTable(results *AnalyticsResults, options *AnalyticsOptions) error {
     // File types
     fmt.Printf("📁 File Types:\n")
     
-    // Sort categories by count
+    // Sort categories by count (but keep Other at the end)
     type categoryStats struct {
         name string
         info *FileTypeInfo
     }
     var categories []categoryStats
+    var otherCategory *categoryStats
     
     for name, info := range results.FileTypes {
         if info.Count > 0 {
-            categories = append(categories, categoryStats{name, info})
+            if name == "Other" {
+                otherCategory = &categoryStats{name, info}
+            } else {
+                categories = append(categories, categoryStats{name, info})
+            }
         }
     }
     
     sort.Slice(categories, func(i, j int) bool {
         return categories[i].info.Count > categories[j].info.Count
     })
+    
+    // Add Other at the end if present
+    if otherCategory != nil {
+        categories = append(categories, *otherCategory)
+    }
 
     for _, cat := range categories {
         emoji := getCategoryEmoji(cat.name)
-        fmt.Printf("  %s %s (%d files, %s)\n", emoji, cat.name, 
+        fmt.Printf("  %s %s: %d files (%s)\n", emoji, cat.name, 
             cat.info.Count, formatBytes(cat.info.TotalSize))
         
-        if len(cat.info.Extensions) > 1 {
-            var extList []string
-            for ext, count := range cat.info.Extensions {
-                extList = append(extList, fmt.Sprintf("%s: %d", strings.ToUpper(ext), count))
-            }
-            sort.Strings(extList)
-            fmt.Printf("    - %s\n", strings.Join(extList[:min(5, len(extList))], ", "))
+        // Show extension details as a list
+        if len(cat.info.Extensions) > 0 {
+            displayExtensionList(cat.info.Extensions, cat.name)
         }
     }
     
@@ -496,6 +605,18 @@ func displayTable(results *AnalyticsResults, options *AnalyticsOptions) error {
         }
     }
 
+    // Largest files (>100MB)
+    if len(results.LargestFiles) > 0 {
+        fmt.Printf("\n📏 Largest Files (>100MB):\n")
+        for i, file := range results.LargestFiles {
+            emoji := getCategoryEmoji(file.Category)
+            fmt.Printf("  %d. %s %s (%s)\n", i+1, emoji, filepath.Base(file.Path), formatBytes(file.Size))
+            if len(file.Path) > 60 {
+                fmt.Printf("     %s\n", file.Path)
+            }
+        }
+    }
+
     // Duplicates
     if options.FindDuplicates && len(results.Duplicates) > 0 {
         fmt.Printf("\n🔍 Duplicates Found (%d sets):\n", len(results.Duplicates))
@@ -527,6 +648,67 @@ func displayTable(results *AnalyticsResults, options *AnalyticsOptions) error {
     return nil
 }
 
+// displayExtensionList shows file extensions as a bulleted list
+func displayExtensionList(extensions map[string]int, category string) {
+    // Special handling for Documents
+    if category == "Documents" {
+        pdfCount := extensions[".pdf"]
+        docCount := extensions[".doc"] + extensions[".docx"] + extensions[".odt"] + extensions[".rtf"]
+        
+        if pdfCount > 0 {
+            fmt.Printf("    - PDF: %d\n", pdfCount)
+        }
+        if docCount > 0 {
+            fmt.Printf("    - Word/ODT: %d\n", docCount)
+        }
+        return
+    }
+    
+    // For other categories, show individual extensions
+    type extCount struct {
+        ext   string
+        count int
+    }
+    var extList []extCount
+    
+    for ext, count := range extensions {
+        extList = append(extList, extCount{ext, count})
+    }
+    
+    // Sort by count (descending) then by extension name
+    sort.Slice(extList, func(i, j int) bool {
+        if extList[i].count != extList[j].count {
+            return extList[i].count > extList[j].count
+        }
+        return extList[i].ext < extList[j].ext
+    })
+    
+    // Display up to 5 most common extensions
+    displayCount := len(extList)
+    if displayCount > 5 {
+        displayCount = 5
+    }
+    
+    for i := 0; i < displayCount; i++ {
+        ext := extList[i]
+        // Remove dot and uppercase for display
+        extName := strings.ToUpper(ext.ext)
+        if len(extName) > 0 && extName[0] == '.' {
+            extName = extName[1:]
+        }
+        // Handle empty extensions (files without extensions)
+        if extName == "" {
+            extName = "(no extension)"
+        }
+        fmt.Printf("    - %s: %d\n", extName, ext.count)
+    }
+    
+    if len(extList) > 5 {
+        remaining := len(extList) - 5
+        fmt.Printf("    - ...and %d more formats\n", remaining)
+    }
+}
+
 // Helper functions
 func min(a, b int) int {
     if a < b {
@@ -550,6 +732,7 @@ func getCategoryEmoji(category string) string {
         "Spreadsheets":  "📊",
         "Presentations": "📽️",
         "Text":          "📝",
+        "Books":         "📚",
         "Code":          "💻",
         "Config":        "⚙️",
         "Archives":      "🗃️",

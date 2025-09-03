@@ -9,11 +9,12 @@ import (
 )
 
 var (
-    formatFlag      string
-    mediaOnlyFlag   bool
-    duplicatesFlag  bool
-    maxDepthFlag    int
+    formatFlag        string
+    mediaOnlyFlag     bool
+    duplicatesFlag    bool
+    maxDepthFlag      int
     includeHiddenFlag bool
+    browseFlag        bool
 )
 
 var analyticsCmd = &cobra.Command{
@@ -44,6 +45,7 @@ and provide insights about media files. Skips common cache/build folders for per
             MediaOnly:     mediaOnlyFlag,
             FindDuplicates: duplicatesFlag,
             Format:        formatFlag,
+            CreateBrowse:   browseFlag,
         }
 
         // Run analytics
@@ -63,6 +65,7 @@ func init() {
     analyticsCmd.Flags().BoolVar(&duplicatesFlag, "duplicates", false, "Include duplicate detection (slower)")
     analyticsCmd.Flags().IntVar(&maxDepthFlag, "max-depth", 0, "Maximum recursion depth (0 = unlimited)")
     analyticsCmd.Flags().BoolVar(&includeHiddenFlag, "include-hidden", false, "Include hidden files and folders")
+    analyticsCmd.Flags().BoolVar(&browseFlag, "browse", false, "Create .browse folder with hardlinks organized by type")
 
     rootCmd.AddCommand(analyticsCmd)
 }
