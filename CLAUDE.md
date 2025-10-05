@@ -2,12 +2,13 @@
 
 ## Project Overview
 
-Anduril is a Go CLI tool for organizing large media collections by capture date with intelligent duplicate handling and quality-based file replacement. Features multi-level date detection, messaging app filename support, and atomic file operations.
+Anduril is a Go CLI tool for organizing large media collections by capture date with intelligent duplicate handling and quality-based file replacement. Features multi-level date detection, messaging app filename support, atomic file operations, and intelligent folder analysis.
 
 ## Current Status
 
 ✅ **Implemented:**
-- Import command with advanced EXIF/metadata extraction
+- **Import command** with advanced EXIF/metadata extraction
+- **Analytics command** for intelligent folder analysis with browseable output
 - Multi-level date detection (EXIF → filename patterns → file timestamps)
 - Messaging app filename pattern recognition (Signal, WhatsApp, Telegram, Instagram)
 - Smart duplicate detection with SHA256 hash verification
@@ -15,6 +16,8 @@ Anduril is a Go CLI tool for organizing large media collections by capture date 
 - Date confidence scoring system (HIGH/MEDIUM/LOW/VERY_LOW)
 - Atomic file operations with integrity verification
 - Global ExifTool instance for performance optimization
+- Real-time progress tracking for large folder scans
+- Hardlink-based browse structures for file organization
 - Comprehensive test coverage for quality and pattern matching
 - Structured configuration management with TOML
 
@@ -27,11 +30,16 @@ anduril/
 ├── main.go                    # Entry point
 ├── cmd/                       # CLI commands
 │   ├── root.go               # Root cobra command
-│   └── import.go             # Import subcommand implementation
+│   ├── import.go             # Import subcommand implementation
+│   ├── analytics.go          # Analytics subcommand implementation
+│   └── server.go             # Server subcommand (basic structure)
 ├── internal/                  # Internal packages
 │   ├── config.go             # Configuration management (Viper + TOML)
 │   ├── copy.go               # File copying, organization, and quality logic
 │   ├── copy_test.go          # Quality check tests
+│   ├── analytics.go          # Folder analysis with progress tracking
+│   ├── browse.go             # Hardlink browse structure creation
+│   ├── watcher.go            # Filesystem watcher (for server mode)
 │   ├── log.go                # Logging utilities  
 │   └── media.go              # Media file processing (EXIF extraction)
 └── go.mod                    # Go module definition
@@ -53,6 +61,21 @@ anduril import [--user USER] [--library LIBRARY] [--dry-run] [--exiftool] INPUT_
 - **Video support**: Full video metadata extraction and quality comparison
 - **Atomic operations**: Safe copying with SHA256 verification
 - **Performance optimized**: Global ExifTool instance, native Go libraries
+
+### Analytics Command
+```bash
+anduril analytics [--browse] [--duplicates] [--media-only] [--max-depth N] FOLDER
+```
+
+**Features:**
+- **Intelligent folder scanning**: Skips noise folders (node_modules, cache, Lightroom previews) for performance
+- **File type categorization**: Images, Videos, Documents, Books, Code, Config, Archives, Audio
+- **Project detection**: Identifies Git repos, Node.js, Python, Go, Rust projects
+- **Real-time progress tracking**: Shows files/dirs scanned with scan rate
+- **Large file detection**: Identifies files >100MB with categorization
+- **Duplicate analysis**: Optional SHA256-based duplicate detection for media files
+- **Browseable output**: Creates hardlink-organized `.browse/` folder structure
+- **Media insights**: Quality distribution and date range analysis
 
 ### Advanced Date Detection
 

@@ -102,7 +102,7 @@ func startFilesystemWatcher(app *pocketbase.PocketBase, conf *internal.Config) {
     for {
         select {
         case event := <-watcher.Events():
-            log.Printf("File event: %s %s", event.Type, event.Path)
+            log.Printf("File event: %d %s", event.Type, event.Path)
             // Database operations would go here in full implementation
         case err := <-watcher.Errors():
             log.Printf("Watcher error: %v", err)
