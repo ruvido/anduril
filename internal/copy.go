@@ -508,7 +508,7 @@ func determineFileType(filePath string, cfg *Config) FileType {
 // generateDestinationPath creates the target path based on file type and date confidence
 func generateDestinationPath(src string, fileDate time.Time, confidence DateConfidence, fileType FileType, cfg *Config, user string) (string, error) {
 	destBase := filepath.Base(src)
-	highConfidenceDate := confidence >= MEDIUM
+	highConfidenceDate := confidence <= MEDIUM
 	
 	var destDir string
 	switch {
@@ -716,7 +716,7 @@ func BatchExtractMetadata(filePaths []string) (map[string]time.Time, error) {
 
 	tags := []string{
 		"DateTimeOriginal",
-		"CreateDate", 
+		"CreateDate",
 		"CreationDate",
 		"TrackCreateDate",
 		"MediaCreateDate",
@@ -790,7 +790,7 @@ func ProcessFile(src string, cfg *Config, user string, dryRun bool) error {
 	}
 	
 	// Log confidence level for debugging
-	if confidence <= LOW {
+	if confidence >= LOW {
 		fmt.Printf("Warning: low confidence date for %s (using %s)\n", src, fileDate.Format("2006-01-02"))
 	}
 	
