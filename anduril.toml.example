@@ -1,0 +1,103 @@
+# Anduril Configuration File Example
+#
+# This is an example configuration file for Anduril.
+# To use it, copy this file to: ~/.config/anduril/anduril.toml
+#
+# All configuration is optional - Anduril will use sensible defaults if no
+# config file is present. You only need to create a config file if you want
+# to customize the default behavior.
+#
+# To use this example:
+#   mkdir -p ~/.config/anduril
+#   cp anduril.toml.example ~/.config/anduril/anduril.toml
+#   # Edit the file with your preferred settings
+
+# ============================================================================
+# User Configuration
+# ============================================================================
+
+# User identifier for organization purposes
+# Default: "user"
+user = "user"
+
+
+# ============================================================================
+# Library Paths
+# ============================================================================
+
+# Main library path for organizing images
+# Anduril will organize photos here in YYYY/MM/DD/ structure based on capture date
+# Use $HOME for home directory, or absolute paths
+# Default: "$HOME/anduril/images"
+library = "$HOME/anduril/images"
+
+# Platform-specific examples:
+# Linux/macOS:  library = "/home/username/Photos"
+# Windows:      library = "C:/Users/username/Pictures/Anduril"
+
+# Separate library path for videos (optional)
+# Videos can be kept separate from images if desired
+# Default: "$HOME/anduril/videos"
+videolibrary = "$HOME/anduril/videos"
+
+
+# ============================================================================
+# File Extensions
+# ============================================================================
+
+# Image file extensions to process
+# Extensions are case-insensitive (.jpg matches .JPG, .Jpg, etc.)
+# Default includes common formats
+image_extensions = [".jpg", ".jpeg", ".png", ".gif", ".heic"]
+
+# To add support for RAW formats and other image types, extend the list:
+# image_extensions = [
+#     ".jpg", ".jpeg", ".png", ".gif", ".heic",
+#     ".cr2",   # Canon RAW
+#     ".nef",   # Nikon RAW
+#     ".arw",   # Sony RAW
+#     ".dng",   # Adobe Digital Negative
+#     ".tiff",  # TIFF format
+#     ".bmp",   # Bitmap
+#     ".webp"   # WebP format
+# ]
+
+# Video file extensions to process
+# Extensions are case-insensitive
+# Default includes common formats
+video_extensions = [".mp4", ".mov", ".avi", ".mkv"]
+
+# To add support for additional video formats, extend the list:
+# video_extensions = [
+#     ".mp4", ".mov", ".avi", ".mkv",
+#     ".webm",  # WebM format
+#     ".flv",   # Flash Video
+#     ".wmv",   # Windows Media Video
+#     ".m4v"    # MPEG-4 Video
+# ]
+
+
+# ============================================================================
+# Additional Notes
+# ============================================================================
+
+# ExifTool Usage:
+# The --exiftool flag is controlled via command line, not this config file.
+# Use: anduril import --exiftool INPUT_DIR
+# Without the flag, Anduril uses the native Go EXIF library for better performance.
+
+# Date Detection:
+# Anduril uses multi-level date detection:
+#   1. EXIF metadata (DateTimeOriginal, CreateDate) - HIGH confidence
+#   2. Filename patterns (Signal, WhatsApp, Telegram, etc.) - MEDIUM confidence
+#   3. File creation time - LOW confidence
+#   4. File modification time - VERY_LOW confidence (fallback)
+
+# Quality-Based Deduplication:
+# When duplicates are detected, Anduril keeps the highest quality version:
+#   - For images: Higher resolution, then larger file size
+#   - For videos: Higher resolution, then larger file size (same duration only)
+
+# Organization Structure:
+# High confidence files: library/YYYY/MM/DD/filename.ext
+# Low confidence files:  library/noexif/YYYY-MM/filename.ext
