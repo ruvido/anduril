@@ -1,27 +1,27 @@
 # Anduril - Smart Media File Organizer
 
-Anduril is a Go CLI tool for organizing large media collections by capture date with intelligent duplicate handling and quality-based file replacement.
+Anduril is a Go CLI tool for organizing large media collections by capture date with strict hash-based duplicate handling.
 
 ## TL;DR
 
 **Purpose:** Smart media organizer that **COPIES** files into date-organized folders with intelligent duplicate handling
 
 **Key Commands:**
-- `anduril import /photos` - Import and organize media files  
-- `anduril import /photos --workers 8 --batch-size 100` - Performance optimized
+- `anduril import /photos` - Import and organize media files
 - `anduril import /photos --dry-run` - Preview changes without copying
+- `anduril import /photos --link` - Use hardlinks instead of copying (instant, no extra space)
 - `anduril server` - Web interface foundation with PocketBase
 
-**Smart Features:** 4-level date detection (EXIF → filename patterns → timestamps), quality-based deduplication, messaging app support (Signal/WhatsApp/Telegram)
+**Smart Features:** 4-level date detection (EXIF → filename patterns → timestamps), hash-first deduplication with safe timestamp suffixing, messaging app support (Signal/WhatsApp/Telegram)
 
 **File Handling:** Atomic copying with SHA256 verification (originals preserved in source location)
 
-**Performance:** Parallel processing, batch ExifTool calls, real-time progress reporting
+**Processing:** Sequential processing with real-time progress reporting (simple and reliable)
 
 ## Features
 
 - **Smart Date Detection**: Multi-level date extraction from EXIF metadata, filename patterns, and file timestamps
-- **Quality-Based Deduplication**: Automatically keeps the highest quality version of duplicate images/videos
+- **Hash-Based Deduplication**: Identical hashes are skipped; different content is preserved with timestamp suffixes
 - **Messaging App Support**: Recognizes filename patterns from Signal, WhatsApp, Telegram, and Instagram
 - **Atomic File Operations**: Safe copying with integrity verification
 - **Comprehensive Format Support**: Images (JPEG, PNG, HEIC, TIFF, RAW) and videos (MP4, MOV, AVI, MKV)
@@ -79,8 +79,10 @@ anduril import [OPTIONS] INPUT_DIR
 **Options:**
 - `--user USER`: Override user folder name
 - `--library LIBRARY`: Override image library path
+- `--videolibrary LIBRARY`: Override video library path (defaults to same as --library)
 - `--dry-run`: Preview changes without copying files
 - `--exiftool`: Force use of ExifTool for all metadata extraction
+- `--link`: Use hardlinks instead of copying (requires same filesystem)
 
 ### File Organization
 
@@ -109,37 +111,22 @@ LIBRARY/
 
 ## Smart Duplicate Handling
 
-### Image Quality Comparison
-
-1. **Resolution Priority**: Higher pixel count (width × height) wins
-2. **Compression Quality**: For same resolution, larger file size indicates better quality
-3. **No Artificial Thresholds**: Direct comparison without arbitrary percentage limits
-
-### Video Quality Comparison
-
-1. **Duration Check**: Videos with >5 second duration difference are treated as different files
-2. **Resolution Priority**: Higher pixel count wins
-3. **Bitrate Quality**: For same resolution, larger file size indicates better compression
-
 ### Duplicate Resolution Logic
 
 ```
 if file_exists_at_destination:
-    if identical_content (SHA256 hash match):
+    if SHA256 matches:
         skip_file
-    elif is_media_file:
-        quality_result = compare_quality(new, existing)
-        if quality_result == HIGHER:
-            replace_existing_file
-        elif quality_result == EQUAL:
+    else:
+        if a timestamp-suffixed copy with the same hash already exists:
             skip_file
         else:
-            copy_with_suffix (_2, _3, etc.)
-    else:
-        copy_with_suffix
+            copy_with_timestamp_suffix (e.g., _1700000000)
 else:
     copy_file
 ```
+
+There is no quality-based replacement: different hashes are always preserved as separate files.
 
 ## Supported Filename Patterns
 
@@ -160,7 +147,7 @@ Anduril recognizes common filename patterns from various sources:
   - `import.go`: Import command implementation
 - **`internal/`**: Core business logic
   - `config.go`: Configuration management with Viper
-  - `copy.go`: File processing, quality comparison, and organization
+  - `copy.go`: File processing and organization
   - `media.go`: EXIF/metadata extraction
   - `log.go`: Logging utilities
 
@@ -169,12 +156,6 @@ Anduril recognizes common filename patterns from various sources:
 **Date Detection** (`internal/copy.go:203`):
 ```go
 func getBestFileDate(filePath string, cfg *Config) (time.Time, DateConfidence, error)
-```
-
-**Quality Comparison** (`internal/copy.go:254`):
-```go
-func compareImageQuality(newPath, existingPath string) QualityResult
-func compareVideoQuality(newPath, existingPath string) QualityResult
 ```
 
 **File Processing** (`internal/copy.go:669`):
@@ -199,12 +180,13 @@ go test ./internal -v
 ./test_quality_real.sh
 ```
 
-## Performance Optimizations
+## Performance Characteristics
 
+- **Sequential Processing**: Simple and reliable, no race conditions or concurrency issues
 - **Global ExifTool Instance**: Reuses single ExifTool process across all files
 - **Native Go Libraries**: Uses standard library for common image formats
-- **Lazy Metadata Extraction**: Only extracts metadata when needed for quality comparison
 - **Optimized Regex Patterns**: Common patterns checked first for filename parsing
+- **Progress Reporting**: Updates every 10 files with ETA calculation
 
 ## Error Handling
 

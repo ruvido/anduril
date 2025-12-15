@@ -7,18 +7,18 @@ Anduril is a Go CLI tool for organizing large media collections by capture date 
 ## Current Status
 
 ✅ **Implemented:**
-- **Import command** with advanced EXIF/metadata extraction
+- **Import command** with advanced EXIF/metadata extraction (sequential processing)
 - **Analytics command** for intelligent folder analysis with browseable output
 - Multi-level date detection (EXIF → filename patterns → file timestamps)
 - Messaging app filename pattern recognition (Signal, WhatsApp, Telegram, Instagram)
-- Smart duplicate detection with SHA256 hash verification
-- Quality-based image/video comparison without artificial thresholds
+- Hash-based duplicate detection with SHA256 verification
+- Timestamp-suffixed duplicate handling (preserves all unique content)
 - Date confidence scoring system (HIGH/MEDIUM/LOW/VERY_LOW)
 - Atomic file operations with integrity verification
-- Global ExifTool instance for performance optimization
-- Real-time progress tracking for large folder scans
-- Hardlink-based browse structures for file organization
-- Comprehensive test coverage for quality and pattern matching
+- Global ExifTool instance for metadata extraction
+- Real-time progress tracking (every 10 files)
+- Hardlink support for instant imports without extra space
+- Comprehensive test coverage for core functionality
 - Structured configuration management with TOML
 
 🚧 **Planned:** Server mode with PocketBase integration (see prompt-server.md)
@@ -49,18 +49,19 @@ anduril/
 
 ### Import Command
 ```bash
-anduril import [--user USER] [--library LIBRARY] [--dry-run] [--exiftool] INPUT_DIR
+anduril import [--user USER] [--library LIBRARY] [--dry-run] [--exiftool] [--link] INPUT_DIR
 ```
 
 **Features:**
 - **Multi-level date detection**: EXIF metadata → filename patterns → file timestamps
-- **Messaging app support**: Recognizes Signal, WhatsApp, Telegram, Instagram filename patterns  
+- **Messaging app support**: Recognizes Signal, WhatsApp, Telegram, Instagram filename patterns
 - **Date confidence scoring**: HIGH/MEDIUM/LOW/VERY_LOW confidence levels
 - **Smart organization**: High confidence files go to `YYYY/MM/DD/`, low confidence to `noexif/YYYY-MM/`
-- **Quality-based deduplication**: Keeps highest quality version without artificial thresholds
-- **Video support**: Full video metadata extraction and quality comparison
+- **Hash-based deduplication**: Identical files skipped, different content preserved with timestamp suffix
+- **Video support**: Full video metadata extraction and duplicate detection
 - **Atomic operations**: Safe copying with SHA256 verification
-- **Performance optimized**: Global ExifTool instance, native Go libraries
+- **Hardlink support**: Optional instant imports without extra disk space
+- **Sequential processing**: Simple, reliable, no concurrency issues
 
 ### Analytics Command
 ```bash
@@ -92,39 +93,23 @@ anduril analytics [--browse] [--duplicates] [--media-only] [--max-depth N] FOLDE
 - Telegram: `telegram-2024-03-15-14-30-22`
 - InShot: `inshot-2024-03-15-143022`
 
-### Quality Comparison System
-
-**Image Quality Logic:**
-1. **Resolution priority**: Higher pixel count (width × height) wins
-2. **Compression quality**: For same resolution, larger file size wins
-3. **No artificial thresholds**: Direct comparison for accurate results
-
-**Video Quality Logic:**
-1. **Duration validation**: >5 second difference = different videos (no comparison)
-2. **Resolution priority**: Higher pixel count wins  
-3. **Bitrate quality**: For same resolution, larger file size wins
-
-### Smart Duplicate Resolution
+### Hash-Based Duplicate Resolution
 
 ```
 if file_exists_at_destination:
     if identical_content (SHA256 hash match):
         skip_file
-    elif is_media_file:
-        quality_result = compare_quality(new, existing)
-        if quality_result == HIGHER:
-            replace_existing_file
-        elif quality_result == EQUAL:
-            skip_file
-        elif quality_result == LOWER:
-            copy_with_suffix (_2, _3, etc.)
-        else: // UNKNOWN
-            copy_with_suffix
     else:
-        copy_with_suffix
+        # Different content - check if timestamp-suffixed copy already exists
+        if timestamp_copy_with_same_hash_exists:
+            skip_file
+        else:
+            copy_with_timestamp_suffix (e.g., img_1742032800.jpg)
 else:
     copy_file
 ```
+
+**Philosophy**: Never lose unique content. All files with different hashes are preserved with timestamp suffixes.
 
 ## Dependencies
 
@@ -212,11 +197,12 @@ GOOS=windows GOARCH=amd64 go build -o anduril-windows.exe
 - Intelligent folder structure based on date confidence
 - Video and image support with format-specific handling
 
-**Performance:**
+**Processing Characteristics:**
+- Sequential processing (no race conditions or concurrency complexity)
 - Global ExifTool instance reuse across files
 - Native Go libraries for common image formats
 - Optimized regex patterns (most common first)
-- Lazy metadata extraction (only when needed for quality comparison)
+- Progress reporting every 10 files
 
 ## Future Architecture (Server Mode)
 
@@ -234,17 +220,20 @@ Home users, photographers, and power users who need to:
 - Maintain a clean, date-based file structure
 - Handle duplicates with quality preservation
 - Avoid data loss during organization
-## Latest Architecture Improvements
+## Latest Architecture Changes
 
-**Code Streamlining (Less is More):**
-- Refactored `ProcessFile` from 148 lines to 47 lines
-- Extracted helper functions: `determineFileType`, `generateDestinationPath`, `handleDuplicateFile`
-- Removed artificial quality thresholds for more accurate comparison
-- Fixed critical --exiftool flag bug in cmd/import.go:38
-- Optimized ExifTool usage with global instance reuse
+**Simplified Processing (v2025):**
+- ✅ **Removed all parallel processing** - sequential import for reliability and simplicity
+- ✅ **Hash-only duplicate strategy** - no quality comparison, all unique content preserved
+- ✅ **Timestamp-based conflict resolution** - `img_1742032800.jpg` suffix for duplicates
+- ✅ **Cleaner error reporting** - collects all errors and reports at end
+- ✅ **Simplified codebase** - removed batch processing, workers, and concurrency
+- ✅ **Progress every 10 files** - reduced overhead
 
-**Key Bug Fixes:**
-- ✅ Fixed --exiftool flag not being passed to config (cmd/import.go:38-40)
-- ✅ Removed 10% file size threshold causing incorrect quality comparisons
-- ✅ Added proper ExifTool cleanup with defer statement
-- ✅ Fixed regex pattern ordering for better filename matching performance
+**Code Quality:**
+- Eliminated race conditions (no concurrent ExifTool access)
+- Removed sync primitives (no mutexes, waitgroups, channels)
+- Simplified from ~280 lines to ~170 lines in cmd/import.go
+- Single-threaded = easier to debug and reason about
+
+**Philosophy**: Correctness and reliability over speed. Import is not time-critical.

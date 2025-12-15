@@ -14,7 +14,8 @@ type Config struct {
     VideoLib	string   `mapstructure:"videolibrary"`
     ImageExt	[]string `mapstructure:"image_extensions"`
     VideoExt	[]string `mapstructure:"video_extensions"`
-    UseExifTool bool
+    UseExifTool  bool
+    UseHardlinks bool // Use hardlinks instead of copying files
 }
 
 func LoadConfig() (*Config, error) {
@@ -26,6 +27,8 @@ func LoadConfig() (*Config, error) {
     viper.SetConfigName("anduril")
     viper.SetConfigType("toml")
     viper.AddConfigPath(filepath.Join(configDir, "anduril"))
+    viper.AddConfigPath(filepath.Join(os.Getenv("HOME"), ".config", "anduril"))
+    viper.AddConfigPath(".")
 
     // Set defaults:
     viper.SetDefault("user", "user")
@@ -36,6 +39,12 @@ func LoadConfig() (*Config, error) {
 
     if err := viper.ReadInConfig(); err != nil {
         // Config file not found; that's OK, just use defaults
+        fmt.Printf("Config: No config file found, using defaults\n")
+        fmt.Printf("  Searched: %s/anduril/anduril.toml\n", configDir)
+        fmt.Printf("            %s/.config/anduril/anduril.toml\n", os.Getenv("HOME"))
+        fmt.Printf("            ./anduril.toml\n")
+    } else {
+        fmt.Printf("Config: Loaded from %s\n", viper.ConfigFileUsed())
     }
 
     var cfg Config
