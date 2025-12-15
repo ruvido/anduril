@@ -4,6 +4,7 @@ import (
     "fmt"
     "os"
     "path/filepath"
+    "strings"
 
     "github.com/spf13/viper"
 )
@@ -34,8 +35,13 @@ func LoadConfig() (*Config, error) {
     viper.SetDefault("user", "user")
     viper.SetDefault("library", filepath.Join(os.Getenv("HOME"), "anduril/images"))
     viper.SetDefault("videolibrary", filepath.Join(os.Getenv("HOME"), "anduril/videos"))
-    viper.SetDefault("image_extensions", []string{".jpg", ".jpeg", ".png", ".gif", ".heic"})
-    viper.SetDefault("video_extensions", []string{".mp4", ".mov", ".avi", ".mkv"})
+    viper.SetDefault("image_extensions", []string{
+        ".jpg", ".jpeg", ".png", ".gif", ".heic", ".heif",
+        ".tiff", ".tif", ".raw", ".cr2", ".nef", ".arw", ".raf", ".dng",
+    })
+    viper.SetDefault("video_extensions", []string{
+        ".mp4", ".mov", ".avi", ".mkv", ".webm", ".flv", ".wmv", ".m4v",
+    })
 
     if err := viper.ReadInConfig(); err != nil {
         // Config file not found; that's OK, just use defaults
@@ -50,6 +56,14 @@ func LoadConfig() (*Config, error) {
     var cfg Config
     if err := viper.Unmarshal(&cfg); err != nil {
         return nil, fmt.Errorf("failed to parse config: %w", err)
+    }
+
+    // Normalize extensions to lowercase to make matching case-insensitive
+    for i, ext := range cfg.ImageExt {
+        cfg.ImageExt[i] = strings.ToLower(ext)
+    }
+    for i, ext := range cfg.VideoExt {
+        cfg.VideoExt[i] = strings.ToLower(ext)
     }
 
     return &cfg, nil

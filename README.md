@@ -68,6 +68,11 @@ image_extensions = [".jpg", ".jpeg", ".png", ".gif", ".heic", ".tiff", ".cr2", "
 video_extensions = [".mp4", ".mov", ".avi", ".mkv", ".webm", ".flv", ".wmv", ".m4v"]
 ```
 
+Defaults are case-insensitive and already include common RAW/HEIF/TIFF formats plus extra video containers:
+
+- Images: `.jpg`, `.jpeg`, `.png`, `.gif`, `.heic`, `.heif`, `.tiff`, `.tif`, `.raw`, `.cr2`, `.nef`, `.arw`, `.raf`, `.dng`
+- Videos: `.mp4`, `.mov`, `.avi`, `.mkv`, `.webm`, `.flv`, `.wmv`, `.m4v`
+
 ## Usage
 
 ### Import Command
