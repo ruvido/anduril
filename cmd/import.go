@@ -19,10 +19,9 @@ var (
 )
 
 var importCmd = &cobra.Command{
-	Use:          "import [folder]",
-	Short:        "Import media files from folder",
-	Args:         cobra.ExactArgs(1),
-	SilenceUsage: true, // Don't print usage on error
+	Use:   "import [folder]",
+	Short: "Import media files from folder",
+	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		folder := args[0]
 
