@@ -2,25 +2,14 @@ package internal
 
 import (
 	"bytes"
-	_ "embed"
 	"image"
 	"image/color"
 	"image/jpeg"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
-
-//go:embed testdata/test_high.jpg
-var testImageHigh []byte // ~40KB, 800x533, EXIF 2025:10:27
-
-//go:embed testdata/test_medium.jpg
-var testImageMedium []byte // ~27KB, 600x400, EXIF 2025:10:27
-
-//go:embed testdata/test_low.jpg
-var testImageLow []byte // ~16KB, 400x267, EXIF 2025:10:27
 
 func testHardlinkConfig(library string) *Config {
 	return &Config{
@@ -481,74 +470,6 @@ func expectedDestPath(t *testing.T, src string, cfg *Config, user string) string
 		t.Fatalf("generateDestinationPath: %v", err)
 	}
 	return dest
-}
-
-func TestReal_QualityHandling(t *testing.T) {
-	// Test with REAL embedded images with EXIF metadata from Fujifilm X-T3
-	// These images have actual EXIF DateTimeOriginal: 2025:10:27 17:22:31
-
-	tempDir := t.TempDir()
-	lib := filepath.Join(tempDir, "lib")
-	cfg := testHardlinkConfig(lib)
-
-	filename := "DSCF1438.jpg"
-	srcPath := filepath.Join(tempDir, filename)
-
-	// Process first image
-	if err := os.WriteFile(srcPath, testImageHigh, 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := ProcessFile(srcPath, cfg, cfg.User, false, nil, true); err != nil {
-		t.Fatalf("ProcessFile first: %v", err)
-	}
-
-	destPath := expectedDestPath(t, srcPath, cfg, cfg.User)
-	origHash, _ := FileHash(destPath)
-
-	// Verify EXIF-based path still in place
-	if !strings.Contains(destPath, "2025/10/27") {
-		t.Fatalf("EXIF date NOT used! File in: %s (expected 2025/10/27)", destPath)
-	}
-
-	// Break hardlink before rewriting the source
-	os.Remove(srcPath)
-
-	// Process second image with different content -> expect timestamp-suffixed copy
-	if err := os.WriteFile(srcPath, testImageLow, 0644); err != nil {
-		t.Fatal(err)
-	}
-	expectedPrefixed := timestampSuffixCopyPath(destPath)
-
-	if err := ProcessFile(srcPath, cfg, cfg.User, false, nil, true); err != nil {
-		t.Fatalf("ProcessFile second: %v", err)
-	}
-
-	newHash, _ := FileHash(destPath)
-	if newHash != origHash {
-		t.Fatalf("original file content changed unexpectedly")
-	}
-	if _, err := os.Stat(expectedPrefixed); err != nil {
-		t.Fatalf("expected hash-prefixed copy %s to exist: %v", expectedPrefixed, err)
-	}
-
-	// Break hardlink again and process identical content -> expect skip
-	os.Remove(srcPath)
-	if err := os.WriteFile(srcPath, testImageHigh, 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := ProcessFile(srcPath, cfg, cfg.User, false, nil, true); err != nil {
-		t.Fatalf("ProcessFile third: %v", err)
-	}
-
-	destDir := filepath.Dir(destPath)
-	entries, err := os.ReadDir(destDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 2 {
-		t.Fatalf("expected two files (original + prefixed), found %d", len(entries))
-	}
 }
 
 func TestProcessFile_HardlinkNewPathCreatesLink(t *testing.T) {

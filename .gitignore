@@ -3,7 +3,16 @@ _*
 cancellami
 prompt.md
 anduril
+anduril-exiftool
+anduril-hybrid
+anduril-linux-amd64
+anduril.jpg
 anduril.log
+_archive/
+test/
+test-single/
+test_anduril.sh
+test_quality_real.sh
 dcim/
 library-video/
 library/

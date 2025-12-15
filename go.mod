@@ -1,6 +1,6 @@
 module anduril
 
-go 1.24.5
+go 1.23.0
 
 require (
 	github.com/barasher/go-exiftool v1.10.0

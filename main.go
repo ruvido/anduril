@@ -1,13 +1,12 @@
-
 package main
 
 import (
-    "anduril/cmd"
-    "log"
+	"anduril/cmd"
+	"log"
 )
 
 func main() {
-    if err := cmd.Execute(); err != nil {
-        log.Fatal(err)
-    }
+	if err := cmd.Execute(); err != nil {
+		log.Fatal(err)
+	}
 }

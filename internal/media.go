@@ -1,69 +1,69 @@
 package internal
 
 import (
-    "fmt"
-    "os"
-    "path/filepath"
-    "strings"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 )
 
 // ScanMediaFiles scans input directory recursively for media files based on extensions
 func ScanMediaFiles(inputDir string, cfg *Config) ([]string, error) {
-    var files []string
-    err := filepath.Walk(inputDir, func(path string, info os.FileInfo, err error) error {
-        if err != nil {
-            return err
-        }
-        if info.IsDir() {
-            return nil
-        }
+	var files []string
+	err := filepath.Walk(inputDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
 
-        ext := strings.ToLower(filepath.Ext(info.Name()))
-        for _, e := range cfg.ImageExt {
-            if ext == e {
-                files = append(files, path)
-                return nil
-            }
-        }
-        for _, e := range cfg.VideoExt {
-            if ext == e {
-                files = append(files, path)
-                return nil
-            }
-        }
-        return nil
-    })
-    if err != nil {
-        return nil, fmt.Errorf("error scanning files: %w", err)
-    }
-    return files, nil
+		ext := strings.ToLower(filepath.Ext(info.Name()))
+		for _, e := range cfg.ImageExt {
+			if ext == e {
+				files = append(files, path)
+				return nil
+			}
+		}
+		for _, e := range cfg.VideoExt {
+			if ext == e {
+				files = append(files, path)
+				return nil
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error scanning files: %w", err)
+	}
+	return files, nil
 }
 
 // ScanMediaFilesStream scans input directory and sends files to channel for streaming processing
 func ScanMediaFilesStream(inputDir string, cfg *Config, fileChan chan<- string) error {
-    defer close(fileChan)
-    
-    return filepath.Walk(inputDir, func(path string, info os.FileInfo, err error) error {
-        if err != nil {
-            return err
-        }
-        if info.IsDir() {
-            return nil
-        }
+	defer close(fileChan)
 
-        ext := strings.ToLower(filepath.Ext(info.Name()))
-        for _, e := range cfg.ImageExt {
-            if ext == e {
-                fileChan <- path
-                return nil
-            }
-        }
-        for _, e := range cfg.VideoExt {
-            if ext == e {
-                fileChan <- path
-                return nil
-            }
-        }
-        return nil
-    })
+	return filepath.Walk(inputDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+
+		ext := strings.ToLower(filepath.Ext(info.Name()))
+		for _, e := range cfg.ImageExt {
+			if ext == e {
+				fileChan <- path
+				return nil
+			}
+		}
+		for _, e := range cfg.VideoExt {
+			if ext == e {
+				fileChan <- path
+				return nil
+			}
+		}
+		return nil
+	})
 }

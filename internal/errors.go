@@ -27,12 +27,12 @@ const (
 
 // ProcessError represents a categorized error during file processing
 type ProcessError struct {
-	FilePath     string
-	Category     ErrorCategory
-	Severity     ErrorSeverity
-	OriginalErr  error
-	Context      map[string]string // Additional context (hash, destination, etc.)
-	Suggestion   string            // User-friendly suggestion to fix
+	FilePath    string
+	Category    ErrorCategory
+	Severity    ErrorSeverity
+	OriginalErr error
+	Context     map[string]string // Additional context (hash, destination, etc.)
+	Suggestion  string            // User-friendly suggestion to fix
 }
 
 func (e *ProcessError) Error() string {
@@ -121,13 +121,13 @@ func CategorizeError(filePath string, err error) *ProcessError {
 
 // ErrorStats tracks error statistics during import
 type ErrorStats struct {
-	Total        int
-	Critical     int
-	Errors       int
-	Warnings     int
-	ByCategory   map[ErrorCategory]int
-	LastErrors   []*ProcessError // Last 5 errors for quick diagnosis
-	Consecutive  int             // Consecutive errors (for circuit breaker)
+	Total       int
+	Critical    int
+	Errors      int
+	Warnings    int
+	ByCategory  map[ErrorCategory]int
+	LastErrors  []*ProcessError // Last 5 errors for quick diagnosis
+	Consecutive int             // Consecutive errors (for circuit breaker)
 }
 
 func NewErrorStats() *ErrorStats {

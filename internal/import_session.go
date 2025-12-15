@@ -11,14 +11,14 @@ import (
 
 // ImportSession manages an import session with manifest logging and hardlink browser
 type ImportSession struct {
-	ID            string              // Session ID (timestamp: 2025-01-15-103045)
-	LibraryPath   string              // Library root path
-	SessionDir    string              // Full path to session directory
-	ManifestFile  *os.File            // Open file handle for manifest.jsonl
-	InputDir      string              // Original input directory
-	User          string              // User name
-	usedFilenames map[string]int      // Track filename usage for collision detection
-	stats         ImportStats         // Session statistics
+	ID            string         // Session ID (timestamp: 2025-01-15-103045)
+	LibraryPath   string         // Library root path
+	SessionDir    string         // Full path to session directory
+	ManifestFile  *os.File       // Open file handle for manifest.jsonl
+	InputDir      string         // Original input directory
+	User          string         // User name
+	usedFilenames map[string]int // Track filename usage for collision detection
+	stats         ImportStats    // Session statistics
 }
 
 // ImportStats tracks statistics for an import session
@@ -43,8 +43,8 @@ type ManifestEvent struct {
 	Error    string `json:"error,omitempty"`
 
 	// Error details (for categorized errors)
-	ErrorCategory  string `json:"error_category,omitempty"`
-	ErrorSeverity  string `json:"error_severity,omitempty"`
+	ErrorCategory   string `json:"error_category,omitempty"`
+	ErrorSeverity   string `json:"error_severity,omitempty"`
 	ErrorSuggestion string `json:"error_suggestion,omitempty"`
 
 	// Session start/end fields
