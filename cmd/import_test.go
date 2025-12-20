@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,13 +20,18 @@ func TestImport_WithSession(t *testing.T) {
 	os.MkdirAll(libraryDir, 0755)
 
 	// Create test files
-	testFile1 := filepath.Join(inputDir, "IMG_20240101_120000.jpg")
-	testFile2 := filepath.Join(inputDir, "IMG_20240102_130000.jpg")
+	// Messaging-style files without EXIF; dates should come from file timestamps, not filenames
+	testFile1 := filepath.Join(inputDir, "signal-photo.jpg")
+	testFile2 := filepath.Join(inputDir, "whatsapp-image.jpg")
 	testFile3 := filepath.Join(inputDir, "photo.jpg")
+	fileTime := time.Date(2025, 12, 20, 11, 32, 17, 0, time.UTC)
 
 	os.WriteFile(testFile1, []byte("test data 1"), 0644)
 	os.WriteFile(testFile2, []byte("test data 2"), 0644)
 	os.WriteFile(testFile3, []byte("test data 3"), 0644)
+	_ = os.Chtimes(testFile1, fileTime, fileTime)
+	_ = os.Chtimes(testFile2, fileTime, fileTime)
+	_ = os.Chtimes(testFile3, fileTime, fileTime)
 
 	// Create config
 	conf := &internal.Config{
@@ -105,10 +111,12 @@ func TestImport_WithSession(t *testing.T) {
 		t.Errorf("Expected 3 hardlinks in session, found %d", fileCount)
 	}
 
-	// Verify primary files exist in library
+	// Verify primary files exist in library (no EXIF -> noexif/YYYY-MM/)
+	monthDir := fmt.Sprintf("%04d-%02d", fileTime.Year(), fileTime.Month())
 	expectedFiles := []string{
-		filepath.Join(libraryDir, "testuser", "2024", "01", "01", "IMG_20240101_120000.jpg"),
-		filepath.Join(libraryDir, "testuser", "2024", "01", "02", "IMG_20240102_130000.jpg"),
+		filepath.Join(libraryDir, "testuser", "noexif", monthDir, filepath.Base(testFile1)),
+		filepath.Join(libraryDir, "testuser", "noexif", monthDir, filepath.Base(testFile2)),
+		filepath.Join(libraryDir, "testuser", "noexif", monthDir, filepath.Base(testFile3)),
 	}
 
 	for _, expectedFile := range expectedFiles {
@@ -182,7 +190,7 @@ func TestImport_DryRunSkipsSession(t *testing.T) {
 func TestImport_SessionIDFormat(t *testing.T) {
 	tempDir := t.TempDir()
 
-	session, err := internal.NewImportSession(tempDir, "user", "/input")
+	session, err := internal.NewImportSession(tempDir, "", "user", "/input")
 	if err != nil {
 		t.Fatalf("NewImportSession failed: %v", err)
 	}

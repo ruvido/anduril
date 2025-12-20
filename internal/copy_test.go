@@ -356,12 +356,15 @@ func TestHandleDuplicateFile_TimestampResolution(t *testing.T) {
 	}
 
 	t.Run("different hash image", func(t *testing.T) {
-		final, skip, err := handleDuplicateFile(src, existing, TypeImage, true)
+		final, skip, existingPath, err := handleDuplicateFile(src, existing, TypeImage, true)
 		if err != nil {
 			t.Fatalf("handleDuplicateFile returned error: %v", err)
 		}
 		if skip {
 			t.Fatalf("expected to keep both files, but got skip=true")
+		}
+		if existingPath != "" {
+			t.Fatalf("expected no existing path when keeping both files, got %s", existingPath)
 		}
 
 		wantPrefix := filepath.Join(filepath.Dir(existing), "existing_1742032800.jpg")
@@ -371,12 +374,15 @@ func TestHandleDuplicateFile_TimestampResolution(t *testing.T) {
 	})
 
 	t.Run("different hash video", func(t *testing.T) {
-		final, skip, err := handleDuplicateFile(src, existing, TypeVideo, true)
+		final, skip, existingPath, err := handleDuplicateFile(src, existing, TypeVideo, true)
 		if err != nil {
 			t.Fatalf("handleDuplicateFile returned error: %v", err)
 		}
 		if skip {
 			t.Fatalf("expected to keep both files, but got skip=true")
+		}
+		if existingPath != "" {
+			t.Fatalf("expected no existing path when keeping both files, got %s", existingPath)
 		}
 
 		wantPrefix := filepath.Join(filepath.Dir(existing), "existing_1742032800.jpg")
@@ -386,12 +392,15 @@ func TestHandleDuplicateFile_TimestampResolution(t *testing.T) {
 	})
 
 	t.Run("same hash skips", func(t *testing.T) {
-		final, skip, err := handleDuplicateFile(existing, existing, TypeImage, true)
+		final, skip, existingPath, err := handleDuplicateFile(existing, existing, TypeImage, true)
 		if err != nil {
 			t.Fatalf("handleDuplicateFile returned error: %v", err)
 		}
 		if !skip || final != "" {
 			t.Fatalf("expected skip for identical content, got skip=%v path=%s", skip, final)
+		}
+		if existingPath != existing {
+			t.Fatalf("expected existing path %s, got %s", existing, existingPath)
 		}
 	})
 
@@ -406,12 +415,15 @@ func TestHandleDuplicateFile_TimestampResolution(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		final, skip, err := handleDuplicateFile(srcPref, existing, TypeImage, true)
+		final, skip, existingPath, err := handleDuplicateFile(srcPref, existing, TypeImage, true)
 		if err != nil {
 			t.Fatalf("handleDuplicateFile returned error: %v", err)
 		}
 		if !skip || final != "" {
 			t.Fatalf("expected skip because prefixed copy already exists, got skip=%v path=%s", skip, final)
+		}
+		if existingPath != prefixed {
+			t.Fatalf("expected existing path %s, got %s", prefixed, existingPath)
 		}
 	})
 }
@@ -493,7 +505,7 @@ func TestProcessFile_HardlinkNewPathCreatesLink(t *testing.T) {
 		t.Fatalf("ProcessFile failed: %v", err)
 	}
 
-	destPath := filepath.Join(library, cfg.User, "2024", "01", "01", filename)
+	destPath := expectedDestPath(t, srcPath, cfg, cfg.User)
 	srcInfo, err := os.Stat(srcPath)
 	if err != nil {
 		t.Fatal(err)

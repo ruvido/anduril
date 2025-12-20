@@ -11,14 +11,16 @@ import (
 
 // ImportSession manages an import session with manifest logging and hardlink browser
 type ImportSession struct {
-	ID            string         // Session ID (timestamp: 2025-01-15-103045)
-	LibraryPath   string         // Library root path
-	SessionDir    string         // Full path to session directory
-	ManifestFile  *os.File       // Open file handle for manifest.jsonl
-	InputDir      string         // Original input directory
-	User          string         // User name
-	usedFilenames map[string]int // Track filename usage for collision detection
-	stats         ImportStats    // Session statistics
+	ID               string         // Session ID (timestamp: 2025-01-15-103045)
+	LibraryPath      string         // Library root path (absolute)
+	VideoLibraryPath string         // Video library root path (absolute)
+	SessionDir       string         // Full path to session directory
+	ManifestFile     *os.File       // Open file handle for manifest.jsonl
+	InputDir         string         // Original input directory (relative)
+	InputDirAbs      string         // Original input directory (absolute)
+	User             string         // User name
+	usedFilenames    map[string]int // Track filename usage for collision detection
+	stats            ImportStats    // Session statistics
 }
 
 // ImportStats tracks statistics for an import session
@@ -50,6 +52,10 @@ type ManifestEvent struct {
 	// Session start/end fields
 	User              string `json:"user,omitempty"`
 	InputDir          string `json:"input_dir,omitempty"`
+	InputDirAbs       string `json:"input_dir_abs,omitempty"`       // Absolute path to input directory
+	LibraryPath       string `json:"library_path,omitempty"`        // Absolute path to library root
+	VideoLibraryPath  string `json:"video_library_path,omitempty"`  // Absolute path to video library
+	SessionDir        string `json:"session_dir,omitempty"`         // Absolute path to session directory
 	TotalFiles        int    `json:"total_files,omitempty"`
 	TotalScanned      int    `json:"total_scanned,omitempty"`
 	Copied            int    `json:"copied,omitempty"`
@@ -59,7 +65,7 @@ type ManifestEvent struct {
 }
 
 // NewImportSession creates a new import session
-func NewImportSession(libraryPath, user, inputDir string) (*ImportSession, error) {
+func NewImportSession(libraryPath, videoLibraryPath, user, inputDir string) (*ImportSession, error) {
 	// Generate session ID from current timestamp
 	sessionID := time.Now().Format("2006-01-02-150405")
 
@@ -79,15 +85,36 @@ func NewImportSession(libraryPath, user, inputDir string) (*ImportSession, error
 		return nil, fmt.Errorf("failed to create manifest file: %w", err)
 	}
 
+	// Convert paths to absolute
+	inputDirAbs, err := filepath.Abs(inputDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get absolute path for input directory: %w", err)
+	}
+
+	libraryPathAbs, err := filepath.Abs(libraryPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get absolute path for library: %w", err)
+	}
+
+	videoLibraryPathAbs := ""
+	if videoLibraryPath != "" {
+		videoLibraryPathAbs, err = filepath.Abs(videoLibraryPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get absolute path for video library: %w", err)
+		}
+	}
+
 	session := &ImportSession{
-		ID:            sessionID,
-		LibraryPath:   libraryPath,
-		SessionDir:    sessionDir,
-		ManifestFile:  manifestFile,
-		InputDir:      inputDir,
-		User:          user,
-		usedFilenames: make(map[string]int),
-		stats:         ImportStats{},
+		ID:               sessionID,
+		LibraryPath:      libraryPathAbs,
+		VideoLibraryPath: videoLibraryPathAbs,
+		SessionDir:       sessionDir,
+		ManifestFile:     manifestFile,
+		InputDir:         inputDir,
+		InputDirAbs:      inputDirAbs,
+		User:             user,
+		usedFilenames:    make(map[string]int),
+		stats:            ImportStats{},
 	}
 
 	return session, nil
@@ -96,11 +123,15 @@ func NewImportSession(libraryPath, user, inputDir string) (*ImportSession, error
 // LogSessionStart writes the session start event to manifest
 func (s *ImportSession) LogSessionStart(totalFiles int) error {
 	event := ManifestEvent{
-		Event:      "session_start",
-		Ts:         time.Now().UTC().Format(time.RFC3339),
-		User:       s.User,
-		InputDir:   s.InputDir,
-		TotalFiles: totalFiles,
+		Event:            "session_start",
+		Ts:               time.Now().UTC().Format(time.RFC3339),
+		User:             s.User,
+		InputDir:         s.InputDir,
+		InputDirAbs:      s.InputDirAbs,
+		LibraryPath:      s.LibraryPath,
+		VideoLibraryPath: s.VideoLibraryPath,
+		SessionDir:       s.SessionDir,
+		TotalFiles:       totalFiles,
 	}
 
 	return s.writeEvent(event)

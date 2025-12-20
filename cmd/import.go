@@ -62,6 +62,10 @@ var importCmd = &cobra.Command{
 			return fmt.Errorf("missing --user or --library and no defaults set")
 		}
 
+		// Update config with resolved values so all code paths use the correct paths
+		conf.Library = library
+		conf.VideoLib = videolibrary
+
 		// Show configuration being used
 		fmt.Println("Configuration:")
 		fmt.Printf("  User: %s\n", user)
@@ -125,7 +129,7 @@ func processFiles(files []string, conf *internal.Config, user, inputDir string, 
 	var session *internal.ImportSession
 	if !dryRun {
 		var err error
-		session, err = internal.NewImportSession(conf.Library, user, inputDir)
+		session, err = internal.NewImportSession(conf.Library, conf.VideoLib, user, inputDir)
 		if err != nil {
 			return fmt.Errorf("failed to create import session: %w", err)
 		}

@@ -312,9 +312,9 @@ func getBestFileDate(filePath string, cfg *Config) (time.Time, DateConfidence, e
 		}
 	}
 
-	// Method 2: Parse filename (MEDIUM confidence)
+	// Method 2: Parse filename (LOW confidence) - unreliable for messaging apps
 	if fileDate, err := parseDateFromFilename(filePath); err == nil {
-		return fileDate, MEDIUM, nil
+		return fileDate, LOW, nil
 	}
 
 	// Method 3: File modification time (LOW confidence)
@@ -706,16 +706,18 @@ func generateDestinationPath(src string, fileDate time.Time, confidence DateConf
 }
 
 // handleDuplicateFile manages duplicate file resolution using strict hash comparison
-func handleDuplicateFile(src, destPath string, fileType FileType, isSilent bool) (finalPath string, shouldSkip bool, err error) {
+// Returns finalPath for new timestamped copies, shouldSkip when a duplicate is found,
+// and existingPath pointing to the file that matched the incoming hash.
+func handleDuplicateFile(src, destPath string, fileType FileType, isSilent bool) (finalPath string, shouldSkip bool, existingPath string, err error) {
 	// Check if files are identical
 	srcHash, err := fileHash(src)
 	if err != nil {
-		return "", false, fmt.Errorf("failed to hash src file %s: %w", src, err)
+		return "", false, "", fmt.Errorf("failed to hash src file %s: %w", src, err)
 	}
 
 	destHash, err := fileHash(destPath)
 	if err != nil {
-		return "", false, fmt.Errorf("failed to hash dest file %s: %w", destPath, err)
+		return "", false, "", fmt.Errorf("failed to hash dest file %s: %w", destPath, err)
 	}
 
 	// If content is identical, skip
@@ -723,7 +725,7 @@ func handleDuplicateFile(src, destPath string, fileType FileType, isSilent bool)
 		if !isSilent {
 			fmt.Printf("Skipping duplicate file (identical content): %s\n", src)
 		}
-		return "", true, nil
+		return "", true, destPath, nil
 	}
 
 	// Different content: if a timestamp-suffixed copy with the same hash already exists, skip.
@@ -742,7 +744,7 @@ func handleDuplicateFile(src, destPath string, fileType FileType, isSilent bool)
 			if !isSilent {
 				fmt.Printf("Skipping duplicate file (matching timestamp copy exists): %s\n", src)
 			}
-			return "", true, nil
+			return "", true, candidate, nil
 		}
 	}
 
@@ -751,7 +753,7 @@ func handleDuplicateFile(src, destPath string, fileType FileType, isSilent bool)
 	if !isSilent {
 		fmt.Printf("Existing file has different content, saving with timestamp suffix: %s → %s\n", src, finalPath)
 	}
-	return finalPath, false, nil
+	return finalPath, false, "", nil
 }
 
 // getCaptureTimestampNative uses goexif to get date for supported image files
@@ -967,7 +969,7 @@ func ProcessFile(src string, cfg *Config, user string, dryRun bool, session *Imp
 	destExists := false
 	if _, err := os.Stat(destPath); err == nil {
 		destExists = true
-		finalPath, shouldSkip, err := handleDuplicateFile(src, destPath, fileType, isSilent)
+		finalPath, shouldSkip, existingPath, err := handleDuplicateFile(src, destPath, fileType, isSilent)
 		if err != nil {
 			return err
 		}
@@ -975,11 +977,17 @@ func ProcessFile(src string, cfg *Config, user string, dryRun bool, session *Imp
 			// Log skip to session if tracking
 			if session != nil {
 				hash, _ := fileHash(src)
-				session.LogSkippedDuplicate(src, destPath, hash)
+				// existingPath tells the user which file matched the incoming hash
+				if existingPath == "" {
+					existingPath = destPath
+				}
+				session.LogSkippedDuplicate(src, existingPath, hash)
 			}
 			return nil
 		}
-		destPath = finalPath
+		if finalPath != "" {
+			destPath = finalPath
+		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("failed to stat %s: %w", destPath, err)
 	}
@@ -1029,12 +1037,15 @@ func ProcessFile(src string, cfg *Config, user string, dryRun bool, session *Imp
 		if session != nil {
 			hash, _ := fileHash(src)
 			size, _ := getFileSize(destPath)
-			browsePath, err := session.CreateHardlink(destPath)
+			browsePath := ""
+			browseFilename, err := session.CreateHardlink(destPath)
 			if err != nil {
 				fmt.Printf("Warning: failed to create import browser link: %v\n", err)
 			} else {
-				session.LogCopied(src, destPath, hash, size, browsePath)
+				browsePath = browseFilename
 			}
+			// Always log, regardless of hardlink success
+			session.LogCopied(src, destPath, hash, size, browsePath)
 		}
 
 		return nil
@@ -1081,16 +1092,19 @@ func ProcessFile(src string, cfg *Config, user string, dryRun bool, session *Imp
 	// Log to session and create browse hardlink
 	if session != nil {
 		size, _ := getFileSize(destPath)
-		browsePath, err := session.CreateHardlink(destPath)
+		browsePath := ""
+		browseFilename, err := session.CreateHardlink(destPath)
 		if err != nil {
 			fmt.Printf("Warning: failed to create import browser link: %v\n", err)
 		} else {
-			// Check if this was a timestamped copy (collision resolution)
-			if destPath != origDestPath {
-				session.LogCopiedTimestamped(src, destPath, srcHash, size, browsePath)
-			} else {
-				session.LogCopied(src, destPath, srcHash, size, browsePath)
-			}
+			browsePath = browseFilename
+		}
+		// Always log, regardless of hardlink success
+		// Check if this was a timestamped copy (collision resolution)
+		if destPath != origDestPath {
+			session.LogCopiedTimestamped(src, destPath, srcHash, size, browsePath)
+		} else {
+			session.LogCopied(src, destPath, srcHash, size, browsePath)
 		}
 	}
 

@@ -11,7 +11,7 @@ import (
 func TestNewImportSession(t *testing.T) {
 	tempDir := t.TempDir()
 
-	session, err := NewImportSession(tempDir, "testuser", "/input/test")
+	session, err := NewImportSession(tempDir, "", "testuser", "/input/test")
 	if err != nil {
 		t.Fatalf("NewImportSession failed: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestNewImportSession(t *testing.T) {
 func TestImportSession_CreateHardlink_NoCollision(t *testing.T) {
 	tempDir := t.TempDir()
 
-	session, err := NewImportSession(tempDir, "testuser", "/input")
+	session, err := NewImportSession(tempDir, "", "testuser", "/input")
 	if err != nil {
 		t.Fatalf("NewImportSession failed: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestImportSession_CreateHardlink_NoCollision(t *testing.T) {
 func TestImportSession_CreateHardlink_WithCollision(t *testing.T) {
 	tempDir := t.TempDir()
 
-	session, err := NewImportSession(tempDir, "testuser", "/input")
+	session, err := NewImportSession(tempDir, "", "testuser", "/input")
 	if err != nil {
 		t.Fatalf("NewImportSession failed: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestImportSession_CreateHardlink_WithCollision(t *testing.T) {
 func TestImportSession_ManifestJSONL(t *testing.T) {
 	tempDir := t.TempDir()
 
-	session, err := NewImportSession(tempDir, "testuser", "/input/photos")
+	session, err := NewImportSession(tempDir, "", "testuser", "/input/photos")
 	if err != nil {
 		t.Fatalf("NewImportSession failed: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestImportSession_ManifestJSONL(t *testing.T) {
 func TestImportSession_GetStats(t *testing.T) {
 	tempDir := t.TempDir()
 
-	session, err := NewImportSession(tempDir, "testuser", "/input")
+	session, err := NewImportSession(tempDir, "", "testuser", "/input")
 	if err != nil {
 		t.Fatalf("NewImportSession failed: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestImportSession_GetStats(t *testing.T) {
 func TestImportSession_CollisionWithExtensions(t *testing.T) {
 	tempDir := t.TempDir()
 
-	session, err := NewImportSession(tempDir, "testuser", "/input")
+	session, err := NewImportSession(tempDir, "", "testuser", "/input")
 	if err != nil {
 		t.Fatalf("NewImportSession failed: %v", err)
 	}
